@@ -1,0 +1,28 @@
+# Stage 3: self-play. Seats are the learner itself (trained), frozen earlier snapshots, or Champions (kept in the
+# mix so the policy doesn't forget how to beat the hand-written bot).
+# uv run karak train -c configs/selfplay.yaml -s init=runs/<ppo run>/policy_best.npz
+name: selfplay
+env:
+  opponents: {self: 0.4, snapshot: 0.3, champion: 0.3}
+  teacher: null
+train:
+  mode: ppo
+  total_steps: 8_000_000
+  num_envs: 160
+  num_steps: 64
+  num_workers: 10
+  lr: 5.0e-5
+  lr_final: 1.0e-5
+  epochs: 2
+  minibatch: 2048
+  ent_coef: 0.001
+  ent_coef_final: 0.0005
+  target_kl: 0.03
+  critic_warmup_updates: 3
+snapshot_every: 15
+max_snapshots: 5
+eval:
+  every: 30
+  games: 100
+  at_start: true
+  num_workers: 10

@@ -1,0 +1,25 @@
+# ~1 minute end-to-end check of the whole pipeline.
+name: smoke
+env:
+  opponents: {champion: 0.5, self: 0.3, snapshot: 0.2}
+train:
+  mode: ppo
+  total_steps: 6000
+  num_envs: 16
+  num_steps: 64
+  num_workers: 2
+  minibatch: 512
+  critic_warmup_updates: 1
+  bc_coef: 0.1
+model:
+  filters: 16
+  blocks: 2
+  hidden: 64
+eval:
+  every: 3
+  games: 4
+  num_envs: 8
+  num_workers: 2
+snapshot_every: 2
+save_every: 3
+run_root: runs_smoke

@@ -1,0 +1,34 @@
+---
+description: Rules engine invariants for Karak (turn flow, combat, hero skills, hidden information)
+globs: src/karak/game/**,src/karak/bots/**,tests/test_engine.py
+alwaysApply: false
+---
+
+# Rules engine
+
+## Model
+
+- `Pos(x, y)` with y pointing down; directions N=0 E=1 S=2 W=3; exits are a 4-bit mask, `rotate` is clockwise.
+- Points are stored in halves: treasure = 2, the Dragon's ruby = 3 (shown as 1½).
+- Box: 79 tiles + the start tile, 53 tokens (incl. 10 chests and 1 dragon). Slots: 2 weapons, 3 spells, 1 key.
+
+## Turn flow (phases)
+
+TURN → (explore) PLACE → (room) CHOOSE_TOKEN for the Oracle → COMBAT → ROLLED → LOOT / CURSE → back to TURN or the
+next player. REINCARNATE for the Warrior at 0 HP with several fountains. GAME_OVER when the Dragon falls.
+
+- 4 moves per turn; exploring places a tile whose exit points back at the hero; one fitting rotation auto-places.
+- Win: total > strength (Thief: ≥). Tie: retreat. Loss: retreat and −1 HP; 0 HP = unconscious (skip a turn,
+  recover), the Warrior instead rises at a fountain. A fight ends the turn unless the Swordsman rolled a 6.
+- Retreat goes to the last tile of the turn without a monster. The Thief may slip past a monster only with a move
+  left and can't end her turn on its tile, so no hero ever stands on a monster between turns.
+- Ending a turn on a healing tile (start or fountain) heals fully and lifts the Curse.
+- House rule: if the labyrinth can't grow and the Dragon is still in the bag, it wakes in the farthest empty room.
+
+## Invariants (tested)
+
+- `legal_actions(seat)` is the single source of truth; `Game.step` raises `IllegalMove` and leaves state
+  untouched for anything else.
+- Tiles + pile + pending == 80; slot limits and HP bounds hold at every step.
+- `Game.view(seat)` is all a bot may see; the pile and bag order are hidden.
+- Every hero skill has a test; keep them when changing combat.

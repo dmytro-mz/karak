@@ -1,0 +1,14 @@
+---
+description: Python style for this repo
+globs: **/*.py
+alwaysApply: false
+---
+
+# Python
+
+- Python 3.12, `from __future__ import annotations`, full type hints; dataclasses / NamedTuples for data.
+- ruff, line length 120. Run format before finishing.
+- Dependencies only via `uv add` / `uv add --dev`; never pip.
+- The engine stays pure (no I/O, no asyncio, no randomness outside `Game.rng` / `Bot.rng`).
+- Seeded randomness everywhere so games and bugs are reproducible.
+- Tests are plain pytest functions; prefer building real games over mocks. Keep the suite fast (< 10 s).

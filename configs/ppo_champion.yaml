@@ -1,0 +1,27 @@
+# Stage 2: start from the imitation policy and learn by playing against Champions (one learner seat per table).
+# uv run karak train -c configs/ppo_champion.yaml -s init=runs/<bc run>/policy_best.npz
+name: ppo_champion
+env:
+  opponents: {champion: 1.0}
+  teacher: champion  # only for the small imitation term below and the "agree" metric
+train:
+  mode: ppo
+  total_steps: 6_000_000
+  num_envs: 160
+  num_steps: 64
+  num_workers: 10
+  lr: 1.0e-4
+  lr_final: 2.0e-5
+  epochs: 2
+  minibatch: 2048
+  ent_coef: 0.002
+  ent_coef_final: 0.0005
+  bc_coef: 0.05
+  bc_coef_final: 0.0
+  target_kl: 0.03
+  critic_warmup_updates: 5
+eval:
+  every: 30
+  games: 100
+  at_start: true
+  num_workers: 10

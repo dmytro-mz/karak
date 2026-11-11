@@ -1,0 +1,51 @@
+---
+description: Karak project map, layering and day-to-day commands
+alwaysApply: true
+---
+
+# Karak — project map
+
+Goal: an online Karak for friends — the complete game, a look that is unmistakably Karak (stone dungeon
+tiles, round monster tokens, parchment hero sheet), and bots good enough to fill empty seats.
+
+## Layout and dependency direction (never import "upwards")
+
+```
+karak/game/        rules engine, pure Python, no I/O                  (lowest layer)
+  model.py         Pos/directions/exit masks, tile pile, items, monsters, bag, heroes
+  rules.py         pure helpers: exact win odds, connectivity, neighbours
+  actions.py       action dataclasses + JSON protocol
+  engine.py        Game state machine: Game.step(seat, action) -> events, Game.view(seat)
+karak/bots/        Bot ABC + planner (Squire / Adventurer / Champion) + registry
+                   neural.py + models/*.npz (each model auto-registers as a bot)
+karak/nn/          encoding.py (board -> planes/vector/action mask, VERSION) · forward.py (numpy inference)
+karak/rl/          training only (torch): env, vec_env (worker processes), network, config, train (BC + PPO)
+karak/runner.py    play_game(bots, heroes, seed)
+karak/web/         room.py (sync table logic, no I/O) · server.py (FastAPI + WebSocket)
+                   static/ (vanilla ES-module client, no build step)
+karak/cli.py       typer CLI (entry point `karak`)
+scripts/           demo / shot / ui_check (visual + browser checks), tune.py (bot configs)
+configs/           training YAMLs (bc, bc_finetune, ppo_champion, selfplay, smoke)
+```
+
+## Commands (always via uv, never pip; in the sandbox `export UV_CACHE_DIR=.uv-cache`)
+
+- Tests: `uv run pytest` (must pass before you say you're done)
+- Lint/format: `uv run ruff check --fix src tests scripts && uv run ruff format src tests scripts`
+- Play: `uv run karak serve` (LAN) · `uv run karak serve --tunnel` (public link via cloudflared)
+- Bot strength: `uv run karak eval -a champion,adventurer,squire -n 300`
+- See the UI: `uv run python scripts/demo.py --stage home|lobby|play|combat|over --out shots/x.png`
+- Train / evaluate the AI: `uv run karak train -c configs/<x>.yaml -s init=<policy.npz>` (runs in `runs/`, MPS,
+  run outside the sandbox) · `uv run karak eval-ai <policy.npz> -n 500 [--opponent ai:<other.npz>]`
+- Click through a whole game in Chrome: `uv run python scripts/ui_check.py` (fails on any JS error)
+- Every screen at phone → 1920 widths: `uv run python scripts/sizes.py` (fails on any overflow; shots in `shots/sizes/`)
+
+## Working agreements
+
+- The server is authoritative; clients only send intents. Never trust client input.
+- Any rules change goes in `game/` with a test in `tests/test_engine.py`.
+- UI changes: render with `scripts/demo.py`, look at the screenshot, run `scripts/ui_check.py` and `scripts/sizes.py`.
+- All art is original SVG in `static/art.js`; never copy the published game's artwork or rulebook text.
+- `shots/` is scratch output (gitignored); so are `runs/` and `logs/`.
+- `nn/` and `bots/` must not import torch (playing needs only numpy). Changing the encoding means bumping
+  `encoding.VERSION` and retraining: old models are refused.

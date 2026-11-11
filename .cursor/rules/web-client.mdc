@@ -1,0 +1,27 @@
+---
+description: Web server, room protocol and the vanilla JS dungeon client
+globs: src/karak/web/**,tests/test_web.py,scripts/demo.py,scripts/ui_check.py
+alwaysApply: false
+---
+
+# Web
+
+## Server / room
+
+- `Room` is synchronous table logic with no I/O; `server.py` only moves JSON over WebSockets.
+- Every change is broadcast as a full per-viewer snapshot (`Room.state_for`). The Oracle's offer goes only to
+  her (`offer`), and `_filter_event` hides offered / returned tokens from others. `tests/test_web.py` checks it.
+- `legal` (action JSON) is sent only to the current, non-autoplay player; the client renders from it.
+- Bots, timeouts and autopilot run from `Room.plan()` → `(delay, step)`, driven by `Room.drive()`.
+- Players are identified by a random token in localStorage; `/r/CODE?me=TOKEN` moves a seat to another device.
+
+## Client (`static/`, no build step, no frameworks)
+
+- `dom.js` `h()` / `s()` build HTML / SVG and skip `null` children — native `replaceChildren` / `append` don't.
+- `art.js` all artwork as `<symbol>`s in one hidden SVG, drawn with `<use>`; heroes, monsters, items, dice.
+- `board.js` the labyrinth: cached tile symbols per (kind, mask, variant), tokens, floor items, clickable
+  spots (`data-act` = action JSON), the ghost tile with ⟲ ⟳ ✓, hero pawns moved by CSS transforms.
+  ViewBox pan/zoom; it auto-fits until the user pans.
+- `app.js` home, lobby, game layout (board · dock with hero sheet and action bar · side panel), combat and
+  other float panels, popovers, dialogs, keyboard controls. `sound.js` synthesised effects.
+- After UI changes: `uv run python scripts/demo.py ...` and look at the PNG; then `scripts/ui_check.py`.

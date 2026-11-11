@@ -1,0 +1,23 @@
+# Stage 1b: continue imitation after the Champion learned something new (e.g. the Warlock's swap).
+# uv run karak train -c configs/bc_finetune.yaml -s init=runs/<bc run>/policy_best.npz
+name: bc_finetune
+env:
+  opponents: {self: 1.0}
+  behavior: teacher
+  teacher: champion
+train:
+  mode: bc
+  total_steps: 1_500_000
+  num_envs: 160
+  num_steps: 64
+  num_workers: 10
+  lr: 3.0e-4
+  lr_final: 2.0e-5
+  epochs: 2
+  minibatch: 1024
+  vf_coef: 0.5
+eval:
+  every: 50
+  games: 100
+  at_start: false
+  num_workers: 10
