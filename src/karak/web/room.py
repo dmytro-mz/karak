@@ -104,7 +104,7 @@ class Settings:
     turn_timer: int = 0  # seconds per human turn, 0 = off
     bot_speed: str = "normal"
     hints: bool = False
-    peek: bool = True  # players may see which tiles and tokens are left, not just how many
+    peek: bool = False  # players may not see which tiles and tokens are left, only how many
 
     def update(self, changes: dict[str, Any]) -> None:
         for key, value in changes.items():
