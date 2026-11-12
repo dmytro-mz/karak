@@ -397,6 +397,20 @@ def test_champion_warlock_swaps_onto_a_chest_it_can_open() -> None:
     assert bot.act(game.view(0)) != A.Swap(1)
 
 
+def test_champion_leader_goes_for_the_dragon_before_a_rival_takes_it() -> None:
+    game = _game(Hero.ORACLE, Hero.THIEF)
+    game.pile.clear()
+    game.bag.clear()
+    _tile(game, EAST, token="dragon")
+    game.players[0].weapons = ["dagger", "axe"]  # +4 (+1 foresight): an 8% long shot against the dragon
+    game.players[0].treasures = ["treasure", "treasure"]
+    game.players[1].treasures = ["treasure"]  # one behind: the ruby would win it the game
+    bot = make_bot("champion", 0)
+    assert bot.act(game.view(0)) == A.Move(1)
+    game.players[1].treasures = []  # out of reach even with the ruby: no need to gamble
+    assert bot.act(game.view(0)) == A.EndTurn()
+
+
 @pytest.mark.parametrize("bot", ["squire", "adventurer", "champion"])
 def test_bot_games_finish(bot: str) -> None:
     for seed in range(4):

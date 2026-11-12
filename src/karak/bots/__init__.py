@@ -29,7 +29,9 @@ REGISTRY: dict[str, BotType] = {
             "Brave but reckless: fights whatever it meets and grabs loot at random.",
             lambda seed: PlannerBot(
                 seed,
-                PlannerConfig(risk=0.0, dragon_risk=0.0, smart_loot=False, heal_at=1, curse_leader=False, noise=2.0),
+                PlannerConfig(
+                    risk=0.0, dragon_risk=0.0, smart_loot=False, heal_at=1, curse_leader=False, noise=2.0, endgame=False
+                ),
             ),
         ),
         BotType(
@@ -37,12 +39,14 @@ REGISTRY: dict[str, BotType] = {
             "Adventurer",
             3,
             "Picks fights it can usually win and heals when hurt, but doesn't watch the score.",
-            lambda seed: PlannerBot(seed, PlannerConfig(risk=0.5, dragon_risk=0.4, curse_leader=False, noise=1.0)),
+            lambda seed: PlannerBot(
+                seed, PlannerConfig(risk=0.5, dragon_risk=0.4, curse_leader=False, noise=1.0, endgame=False)
+            ),
         ),
         BotType(
             "champion",
             "Champion",
-            5,
+            4,
             "Gears up before going deep, curses the leader and only hunts the dragon when the ruby wins the game.",
             lambda seed: PlannerBot(seed),
         ),

@@ -40,6 +40,7 @@ class PlannerConfig:
     explore_value: float = 2.2
     distance_cost: float = 0.45
     noise: float = 0.0  # random jitter on goal scores
+    endgame: bool = True  # with nothing else left, the leader races a rival to the dragon on any odds
     swap: bool = True  # warlock: use the shadow swap
     swap_margin: float = 0.5  # how much better the other tile must look (tuned with scripts/tune_swap.py)
 
@@ -114,6 +115,12 @@ class PlannerBot(Bot):
         others = [p.points for s, p in enumerate(view.players) if s != view.seat]
         return not others or mine > max(others)
 
+    def _rival_ruby(self, view: View) -> bool:
+        """Someone else would overtake me by slaying the dragon."""
+        mine = self._me(view).points
+        ruby = ITEMS["ruby"].points
+        return any(p.points + ruby > mine for s, p in enumerate(view.players) if s != view.seat)
+
     def _loot_value(self, view: View, item: str) -> float:
         me = self._me(view)
         d = ITEMS[item]
@@ -145,6 +152,9 @@ class PlannerBot(Bot):
     def _monster_value(self, view: View, monster: str, chance: float) -> float:
         me = self._me(view)
         if monster == "dragon":
+            endgame = self.cfg.endgame and self._nothing_left(view) and self._ruby_wins(view)
+            if endgame and chance > 0 and self._rival_ruby(view):
+                return 10.0 + chance * 14.0  # waiting only lets the rival take the ruby and the game
             if chance < self.cfg.dragon_risk:
                 return -10.0
             if self._ruby_wins(view):
