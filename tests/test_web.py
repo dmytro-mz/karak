@@ -158,6 +158,34 @@ def test_hint_suggests_a_legal_action() -> None:
     room.handle(mover.member_id, {"type": "action", "action": reply["action"]})
 
 
+def test_pile_and_bag_counts_follow_the_game() -> None:
+    room, inboxes = _room(bots=())
+    room.handle(inboxes[0].member_id, {"type": "start"})
+    g = room.state_for(inboxes[1].member_id)["game"]
+    kinds = {k["kind"]: (k["left"], k["total"]) for k in g["pile"]}
+    assert kinds == {"room": (53, 53), "corridor": (20, 20), "fountain": (2, 2), "portal": (4, 4)}
+    assert sum(k["left"] for k in g["pile"]) == g["pile_left"] == 79
+    rooms = next(k for k in g["pile"] if k["kind"] == "room")
+    assert rooms["shapes"] == {"straight": 13, "corner": 13, "tee": 13, "cross": 14}
+    assert [b["key"] for b in g["bag"]][:2] == ["dragon", "fallen"]
+    assert g["bag"][-1] == {"key": "chest", "left": 10, "total": 10}
+    assert sum(b["left"] for b in g["bag"]) == g["bag_left"] == 53
+
+    game = room.game
+    assert game is not None
+    game.pile.pop()
+    drawn = game.bag.pop()
+    g = room.state_for(inboxes[1].member_id)["game"]
+    assert sum(k["left"] for k in g["pile"]) == g["pile_left"] == 78
+    entry = next(b for b in g["bag"] if b["key"] == drawn)
+    assert entry["left"] == entry["total"] - 1
+
+    room.settings.update({"peek": False})
+    g = room.state_for(inboxes[1].member_id)["game"]
+    assert g["pile"] is None and g["pile_left"] == 78
+    assert g["bag"] is None and g["bag_left"] == 52
+
+
 def test_http_and_websocket_smoke() -> None:
     app = create_app(delay_scale=0.0)
     with TestClient(app) as client:

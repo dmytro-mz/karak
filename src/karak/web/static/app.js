@@ -1,6 +1,7 @@
 import { HERO_FILL, art, die, heroPortrait, installArt, itemIcon, richText, token } from "./art.js";
 import { Board } from "./board.js";
 import { copyText, h, openDialog, toast } from "./dom.js";
+import { bagPopup, pilePopup, renderHud } from "./hud.js";
 import { getVolume, isMuted, setMuted, setVolume, sfx, unlockAudio } from "./sound.js";
 
 const REACTIONS = ["👍", "😂", "😱", "😡", "🎉", "🤔", "😭", "🔥", "👏", "💀"];
@@ -562,7 +563,7 @@ function renderTop() {
   const g = st?.game;
   let info = "";
   if (st?.status === "lobby") info = "Lobby";
-  else if (g) info = `Round ${g.round} · ${plural(g.pile_left, "tile")} left · ${g.dragon_seen ? "🐉 the Dragon is awake" : "the Dragon still sleeps"}`;
+  else if (g) info = `Round ${g.round} · ${g.dragon_seen ? "🐉 the Dragon is awake" : "the Dragon still sleeps"}`;
   const before = [
     h("span", { class: "brand", title: "Home", onclick: leaveTable }, "Karak"),
     h("span", { class: "chip code", title: "Copy table code", onclick: copyCode }, "📋 ", S.code),
@@ -934,6 +935,7 @@ function renderLobby(st, main) {
       row("Turn timer", "The autopilot finishes your turn when time runs out", select("turn_timer", [[0, "Off"], [30, "30 s"], [60, "1 min"], [90, "90 s"], [180, "3 min"]])),
       row("Bot speed", "How fast bots play", select("bot_speed", [["slow", "Relaxed"], ["normal", "Normal"], ["fast", "Fast"]])),
       row("Hints", "Players may ask the Champion bot for advice", toggle("hints")),
+      row("See what's left", "Tap the tile pile or the bag to see which tiles, monsters and chests remain. Off: only how many", toggle("peek")),
     ),
   );
   const actions = isHost
@@ -966,7 +968,7 @@ function ensureBoard(main) {
     h(
       "section",
       { class: "game" },
-      h("div", { class: "board-wrap", id: "board-wrap" }, S.board.el, zoom, h("div", { class: "status", id: "status" }), h("div", { id: "panel", class: "panel-slot" })),
+      h("div", { class: "board-wrap", id: "board-wrap" }, S.board.el, zoom, h("div", { class: "hud", id: "hud" }), h("div", { class: "status", id: "status" }), h("div", { id: "panel", class: "panel-slot" })),
       h("div", { class: "dock", id: "dock" }),
     ),
   );
@@ -980,10 +982,20 @@ function renderGame(st, main) {
   if (!mine || !has(g, "cast_healing")) S.ui.healing = null;
   const legal = !mine ? [] : S.ui.healing != null ? g.legal.filter((a) => a.type === "cast_healing" && a.seat === S.ui.healing) : g.legal.filter((a) => a.type !== "cast_healing");
   S.board.update(g, st.seats, { me: st.you.seat, legal, hint: S.ui.hint, fresh: S.ui.fresh });
+  renderHud($("#hud"), g, { onTiles: (btn) => toggleHudPopup(btn, "pile"), onBag: (btn) => toggleHudPopup(btn, "bag") });
   renderPlayers(st);
   renderDock(st);
   renderStatus(st);
   renderPanel(st);
+}
+
+function toggleHudPopup(btn, kind) {
+  if (popoverEl?.dataset.hud === kind) return closePopover();
+  const g = S.state?.game;
+  if (!g) return;
+  const r = btn.getBoundingClientRect();
+  openPopover(r.left + r.width / 2, r.bottom, kind === "pile" ? pilePopup(g, (k, mask) => S.board.symbol(k, mask, 0)) : bagPopup(g, S.monsters));
+  popoverEl.dataset.hud = kind;
 }
 
 function onBoardAct(action) {
@@ -1634,7 +1646,7 @@ function openPopover(x, y, content) {
 }
 
 document.addEventListener("pointerdown", (e) => {
-  if (popoverEl && !e.target.closest(".popover") && !e.target.closest(".btn")) closePopover();
+  if (popoverEl && !e.target.closest(".popover") && !e.target.closest(".btn") && !e.target.closest(".hud-btn")) closePopover();
 });
 
 function showHint(action) {

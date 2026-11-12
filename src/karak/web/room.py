@@ -13,7 +13,7 @@ import logging
 import random
 import secrets
 import time
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -22,7 +22,21 @@ from karak.bots import REGISTRY, Bot, PlannerBot
 from karak.game import actions
 from karak.game.actions import Action
 from karak.game.engine import Event, Game, IllegalMove, Phase
-from karak.game.model import DIR_NAMES, HEROES, ITEMS, MONSTERS, Hero, Kind
+from karak.game.model import (
+    CHEST,
+    CHESTS,
+    CORNER,
+    CROSS,
+    DIR_NAMES,
+    HEROES,
+    ITEMS,
+    MONSTERS,
+    STRAIGHT,
+    TEE,
+    TILE_PILE,
+    Hero,
+    Kind,
+)
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +60,34 @@ HERO_COLORS = {
 
 Plan = tuple[float, Callable[[], None]]
 
+SHAPES = {STRAIGHT: "straight", CORNER: "corner", TEE: "tee", CROSS: "cross"}
+PILE_KINDS = (Kind.ROOM, Kind.CORRIDOR, Kind.FOUNTAIN, Kind.PORTAL)
+
+
+def pile_summary(pile: list[tuple[Kind, int]]) -> list[dict[str, Any]]:
+    """What is left in the tile pile, per kind and base shape (the order stays hidden)."""
+    left = Counter(pile)
+    out = []
+    for kind in PILE_KINDS:
+        rows = [(SHAPES[mask], left[(kind, mask)], n) for k, mask, n in TILE_PILE if k == kind]
+        out.append(
+            {
+                "kind": kind.value,
+                "left": sum(r[1] for r in rows),
+                "total": sum(r[2] for r in rows),
+                "shapes": {name: n for name, n, _ in rows},
+            }
+        )
+    return out
+
+
+def bag_summary(bag: list[str]) -> list[dict[str, Any]]:
+    """How many of each token are still in the bag, strongest monster first, chests last."""
+    left = Counter(bag)
+    monsters = sorted(MONSTERS.values(), key=lambda m: -m.strength)
+    tokens = [(m.key, m.count) for m in monsters] + [(CHEST, CHESTS)]
+    return [{"key": key, "left": left[key], "total": total} for key, total in tokens]
+
 
 class RoomError(Exception):
     """A rejected request; the message is shown to the user."""
@@ -62,6 +104,7 @@ class Settings:
     turn_timer: int = 0  # seconds per human turn, 0 = off
     bot_speed: str = "normal"
     hints: bool = False
+    peek: bool = True  # players may see which tiles and tokens are left, not just how many
 
     def update(self, changes: dict[str, Any]) -> None:
         for key, value in changes.items():
@@ -69,8 +112,8 @@ class Settings:
                 self.turn_timer = int(value)
             elif key == "bot_speed" and value in BOT_SPEEDS:
                 self.bot_speed = str(value)
-            elif key == "hints" and isinstance(value, bool):
-                self.hints = value
+            elif key in ("hints", "peek") and isinstance(value, bool):
+                setattr(self, key, value)
             else:
                 raise RoomError(f"invalid setting {key}={value!r}")
 
@@ -737,6 +780,7 @@ class Room:
         if game is None:
             return None
         over = game.phase == Phase.GAME_OVER
+        peek = self.settings.peek or over
         current = game.current if not over else None
         pending = None
         if game.pending is not None:
@@ -761,7 +805,9 @@ class Room:
             "offer_size": len(game.offer),
             "loot_item": game.loot_item,
             "pile_left": len(game.pile),
+            "pile": pile_summary(game.pile) if peek else None,
             "bag_left": len(game.bag),
+            "bag": bag_summary(game.bag) if peek else None,
             "dragon_seen": "dragon" not in game.bag,
             "legal": [actions.to_json(a) for a in game.legal_actions(you)] if mine and you is not None else [],
             "result": self._result(game) if over else None,

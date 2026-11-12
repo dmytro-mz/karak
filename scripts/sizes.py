@@ -19,9 +19,29 @@ from shot import CHROME
 from karak.web.server import create_app
 
 SIZES = "1920x1080,1600x900,1440x900,1366x768,1280x720,1180x820,1024x768,820x1180,390x844"
-STAGES = "lobby,play,combat,curse,heal"
+STAGES = "lobby,play,combat,curse,heal,pile,bag"
 SEEDS = {"heal": 4}
-WATCH = ".topbar, .panel, .seat-row, .lobby-grid, .dock, .sheet, .action-bar, .float-panel, .pl-row, .modal, .status"
+CLICK = {"heal": ".slot.castable", "pile": ".hud-btn:nth-child(1)", "bag": ".hud-btn:nth-child(2)"}
+BASE = {"pile": "play", "bag": "play"}
+WATCH = (
+    ".topbar, .panel, .seat-row, .lobby-grid, .dock, .sheet, .action-bar, .float-panel, .pl-row, .modal, .status, "
+    ".hud, .popover"
+)
+
+# The board-corner counters must not sit under the status banner or the zoom buttons.
+OVERLAP_JS = """() => {
+  const hud = document.querySelector(".hud")?.getBoundingClientRect();
+  if (!hud || !hud.width) return [];
+  const out = [];
+  for (const sel of [".status", ".zoom"]) {
+    const el = document.querySelector(sel);
+    const r = el?.getBoundingClientRect();
+    if (!r || !r.width || getComputedStyle(el).display === "none") continue;
+    const hit = hud.left < r.right && r.left < hud.right && hud.top < r.bottom && r.top < hud.bottom;
+    if (hit) out.push(`.hud overlaps ${sel}`);
+  }
+  return out;
+}"""
 
 # Elements whose content is wider than their box, or that stick out of the window.
 OVERFLOW_JS = """(sel) => {
@@ -42,7 +62,8 @@ OVERFLOW_JS = """(sel) => {
 
 
 async def check(stage: str, sizes: list[tuple[int, int]], out: Path, port: int) -> list[str]:
-    room = prepare(stage, 0 if stage in ("curse", "heal") else 30, 3, SEEDS.get(stage, 3))
+    base = BASE.get(stage, stage)
+    room = prepare(base, 0 if base in ("curse", "heal") else 30, 3, SEEDS.get(stage, 3))
     problems: list[str] = []
     async with serving(create_app(), room, port) as url, async_playwright() as pw:
         browser = await pw.chromium.launch(executable_path=CHROME)
@@ -53,11 +74,11 @@ async def check(stage: str, sizes: list[tuple[int, int]], out: Path, port: int) 
             await page.goto(url)
             await page.wait_for_load_state("networkidle")
             await page.wait_for_timeout(800)
-            if stage == "heal":
-                await page.click(".slot.castable")
+            if click := CLICK.get(stage):
+                await page.click(click)
                 await page.wait_for_timeout(300)
             await page.screenshot(path=str(out / f"{stage}-{w}x{h}.png"))
-            found = errors + await page.evaluate(OVERFLOW_JS, WATCH)
+            found = errors + await page.evaluate(OVERFLOW_JS, WATCH) + await page.evaluate(OVERLAP_JS)
             problems += [f"{stage} {w}x{h}: {p}" for p in dict.fromkeys(found)]
             await page.close()
         await browser.close()

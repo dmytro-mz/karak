@@ -122,7 +122,7 @@ function vortex() {
 }
 
 const ITEMS = {
-  dagger: () => scaled(1.24, rot(45, daggerUp())),
+  dagger: () => scaled(1.3, rot(-32, daggerUp()), rot(32, daggerUp())),
   sword: () => scaled(1.2, rot(45, swordUp())),
   axe: () => E("g", { transform: "translate(-7 1)" }, scaled(1.12, rot(28, mirror(axeUp())))),
   bolt: () =>
