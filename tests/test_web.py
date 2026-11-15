@@ -196,7 +196,7 @@ def test_http_and_websocket_smoke() -> None:
         config = client.get("/api/config").json()
         models = {p.stem for p in MODELS.glob("*.npz")}
         assert {b["key"] for b in config["bots"]} == {"squire", "adventurer", "champion", *models}
-        assert len(config["heroes"]) == 11  # 6 + 4 Regent + the Lord of Karak
+        assert len(config["heroes"]) == 14  # 6 + 4 Regent + 3 Sidhar + the Lord of Karak
         code = client.post("/api/rooms").json()["room"]
         assert client.get(f"/api/rooms/{code}").json()["status"] == "lobby"
         with client.websocket_connect(f"/ws/{code}") as ws:
@@ -261,3 +261,20 @@ def test_regent_game_through_the_room_protocol() -> None:
             assert plan is not None
             plan[1]()
     assert room.status == "game_over"
+
+
+def test_sidhar_heroes_are_an_optional_table_rule() -> None:
+    room, (host,) = _room(humans=1, bots=("champion",))
+    with pytest.raises(RoomError):
+        room.handle(host.member_id, {"type": "pick_hero", "hero": "princess"})
+    room.handle(host.member_id, {"type": "settings", "changes": {"sidhar": True}})
+    room.handle(host.member_id, {"type": "pick_hero", "hero": "princess"})
+    assert room.seats[0].hero == Hero.PRINCESS
+    with pytest.raises(RoomError):  # the Regent heroes stay behind their own switch
+        room.handle(host.member_id, {"type": "pick_hero", "hero": "ranger"})
+    room.handle(host.member_id, {"type": "start"})
+    assert room.game is not None and room.game.rules.sidhar and not room.game.rules.expansion
+    assert room.game.players[0].hero == Hero.PRINCESS
+    room.handle(host.member_id, {"type": "to_lobby"})
+    room.handle(host.member_id, {"type": "settings", "changes": {"sidhar": False}})
+    assert room.seats[0].hero is None  # switching it off frees the new heroes

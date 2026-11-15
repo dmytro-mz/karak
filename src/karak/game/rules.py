@@ -21,16 +21,47 @@ def _two_dice(steady: bool, bear: bool = False) -> tuple[tuple[int, float], ...]
     return tuple(sorted(dist.items()))
 
 
+def _faces(steady: bool, bear: bool) -> tuple[tuple[int, float], ...]:
+    """(value, chance) of one die: the swordsman never keeps a 1, the ranger's bear turns it into a 6."""
+    if steady:
+        return tuple((f, 1 / 5) for f in range(2, 7))
+    if bear:
+        return ((2, 1 / 6), (3, 1 / 6), (4, 1 / 6), (5, 1 / 6), (6, 2 / 6))
+    return tuple((f, 1 / 6) for f in range(1, 7))
+
+
+@cache
+def _dual_chance(target: int, steady: bool, bear: bool) -> float:
+    """Chance to reach `target` when one die may be rolled again after seeing both (the princess' dual wielding)."""
+    faces = _faces(steady, bear)
+    total = 0.0
+    for a, pa in faces:
+        for b, pb in faces:
+            best = float(a + b >= target)
+            best = max(best, sum(q for v, q in faces if v + b >= target), sum(q for v, q in faces if a + v >= target))
+            total += pa * pb * best
+    return total
+
+
 @cache
 def win_chance(
-    need: int, steady: bool = False, ties_win: bool = False, reroll: bool = False, bear: bool = False
+    need: int,
+    steady: bool = False,
+    ties_win: bool = False,
+    reroll: bool = False,
+    bear: bool = False,
+    dual: bool = False,
 ) -> float:
     """Chance that two dice reach `need` (= monster strength - bonuses) and win.
 
     `steady`: ones are rolled again (swordsman). `ties_win`: thief. `reroll`: warrior throws again after a miss.
+    `dual`: the princess may roll one die again.
     """
     target = need if ties_win else need + 1
-    p = sum(q for total, q in _two_dice(steady, bear) if total >= target)
+    if dual:
+        p = _dual_chance(target, steady, bear)
+    else:
+        p = sum(q for total, q in _two_dice(steady, bear) if total >= target)
     return p + (1 - p) * p if reroll else p
 
 

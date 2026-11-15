@@ -35,6 +35,7 @@ from karak.game.model import (
     REGENT_HEROES,
     REGENT_MONSTERS,
     REGENT_TILES,
+    SIDHAR_HEROES,
     STRAIGHT,
     TEE,
     TILE_PILE,
@@ -64,6 +65,9 @@ HERO_COLORS = {
     Hero.BATTLEMAGE: "indigo",
     Hero.ACROBAT: "pink",
     Hero.RANGER: "olive",
+    Hero.ALCHEMIST: "lime",
+    Hero.BEASTHUNTER: "frost",
+    Hero.PRINCESS: "violet",
     Hero.LORD: "ember",
 }
 
@@ -124,6 +128,7 @@ class Settings:
     peek: bool = False  # players may not see which tiles and tokens are left, only how many
     expansion: bool = False  # Karak: Regent: new tiles, heroes and monsters
     lord: bool = False  # the Lord of Karak game version (only with the expansion)
+    sidhar: bool = False  # Karak: Sidhar, Kirima, Elspeth: three more heroes
 
     def update(self, changes: dict[str, Any]) -> None:
         for key, value in changes.items():
@@ -131,7 +136,7 @@ class Settings:
                 self.turn_timer = int(value)
             elif key == "bot_speed" and value in BOT_SPEEDS:
                 self.bot_speed = str(value)
-            elif key in ("hints", "peek", "expansion", "lord") and isinstance(value, bool):
+            elif key in ("hints", "peek", "expansion", "lord", "sidhar") and isinstance(value, bool):
                 setattr(self, key, value)
             else:
                 raise RoomError(f"invalid setting {key}={value!r}")
@@ -184,6 +189,7 @@ def heroes_public() -> list[dict[str, Any]]:
             "color": HERO_COLORS[h.key],
             "skills": [{"name": n, "text": t} for n, t in h.skills],
             "expansion": h.key in REGENT_HEROES,
+            "sidhar": h.key in SIDHAR_HEROES,
             "pickable": h.key != Hero.LORD,
         }
         for h in HEROES.values()
@@ -352,10 +358,9 @@ class Room:
                 if not isinstance(changes, dict):
                     raise RoomError("invalid settings")
                 self.settings.update(changes)
-                if not self.settings.expansion:
-                    for seat in self.seats:
-                        if seat.hero in REGENT_HEROES:
-                            seat.hero = None
+                for seat in self.seats:
+                    if seat.hero is not None and seat.hero not in self._hero_pool():
+                        seat.hero = None
                 self._emit({"kind": "lobby"})
             case "start" | "play_again":
                 self.start()
@@ -433,13 +438,21 @@ class Room:
                 choice = Hero(hero)
             except ValueError:
                 raise RoomError("Unknown hero") from None
-            if choice == Hero.LORD or (choice in REGENT_HEROES and not self.settings.expansion):
+            if choice not in self._hero_pool():
                 raise RoomError("That hero is not at this table")
             taken = next((s for s in self.seats if s.hero == choice and s is not target), None)
             if taken is not None:
                 raise RoomError(f"{taken.name} already plays the {HEROES[choice].name}")
             target.hero = choice
         self._emit({"kind": "lobby"})
+
+    def _hero_pool(self) -> tuple[Hero, ...]:
+        """The heroes that can be picked with the expansions switched on at this table."""
+        return (
+            *BASE_HEROES,
+            *(REGENT_HEROES if self.settings.expansion else ()),
+            *(SIDHAR_HEROES if self.settings.sidhar else ()),
+        )
 
     def _add_bot(self, key: str) -> None:
         self._require_lobby()
@@ -448,8 +461,8 @@ class Room:
             raise RoomError("Unknown bot")
         if len(self.seats) >= MAX_SEATS:
             raise RoomError("The table is full")
-        if self.settings.expansion and not bot.expansion:
-            raise RoomError(f"The {bot.label} only knows the base game. Turn Karak: Regent off or pick another bot")
+        if (self.settings.expansion or self.settings.sidhar) and not bot.expansion:
+            raise RoomError(f"The {bot.label} only knows the base game. Turn the expansions off or pick another bot")
         names = {s.name for s in self.seats}
         name, n = bot.label, 1
         while name in names:
@@ -486,17 +499,18 @@ class Room:
         if n < MIN_SEATS:
             raise RoomError("Take a seat or add a bot first")
         regent = self.settings.expansion
-        pool = (*BASE_HEROES, *REGENT_HEROES) if regent else BASE_HEROES
+        sidhar = self.settings.sidhar
+        pool = self._hero_pool()
         free = [h for h in pool if h not in {s.hero for s in self.seats}]
         self.rng.shuffle(free)
         heroes = [s.hero or free.pop() for s in self.seats]
         for seat in self.seats:
-            if regent and seat.bot and not REGISTRY[seat.bot].expansion:
+            if (regent or sidhar) and seat.bot and not REGISTRY[seat.bot].expansion:
                 seat.bot = "champion"  # a trained network can't play the expansion
                 self._say(f"{seat.name} swaps to the Champion's tactics: the AI only knows the base game")
             seat.agent = REGISTRY[seat.bot].make(self.rng.randrange(2**31)) if seat.bot else None
             seat.autoplay = False
-        rules = RulesConfig(expansion=regent, lord=regent and self.settings.lord)
+        rules = RulesConfig(expansion=regent, lord=regent and self.settings.lord, sidhar=sidhar)
         self.game = Game(heroes, seed=self.rng.randrange(2**63), rules=rules)
         self.game_no += 1
         self.status = "playing"
@@ -602,6 +616,8 @@ class Room:
                 self._say(f"🥷 {name} slipped past the {MONSTERS[ev['monster']].name}", seat)
             case "roll" if ev.get("bear"):
                 self._say(f"🐻 The bear turns {_plural(ev['bear'], 'die')} into a six for {name}", seat)
+            case "roll" if ev.get("die") is not None:
+                self._say(f"🗡 {name} swings the second blade: 🎲 {ev['dice'][0]} + {ev['dice'][1]}", seat)
             case "roll" if ev["reroll"]:
                 self._say(f"{name} swings again: 🎲 {ev['dice'][0]} + {ev['dice'][1]}", seat)
             case "strike":
@@ -615,7 +631,8 @@ class Room:
                 verdict = {"win": "defeated", "tie": "held off", "loss": "was beaten by"}[ev["outcome"]]
                 self._say(
                     f"{'⚔️' if ev['outcome'] == 'win' else '🛡' if ev['outcome'] == 'tie' else '💥'} {name} {verdict} "
-                    f"the {m.name}{using}: {ev['total']} vs {m.strength}",
+                    f"the {m.name}{using}: {ev['total']} vs {m.strength}"
+                    + (" (skin of steel: no life lost)" if ev.get("unhurt") else ""),
                     seat,
                 )
             case "loot":
@@ -659,6 +676,14 @@ class Room:
                     )
             case "thorn":
                 self._say(f"🥀 {name} pricks {self._name(ev['target'])} with a thorn of darkness: -1 life", seat)
+            case "transform":
+                m = MONSTERS.get(ev["discarded"])
+                what = f"[{m.key}] {m.name}" if m else "[chest] locked chest"
+                self._say(f"⚗️ {name} sets the {what} aside for 1 HP and draws again", seat)
+            case "protect":
+                self._say(f"🛡 {name} leaps to {self._name(ev['target'])}'s side and heals 1 HP", seat)
+            case "reposition":
+                self._say(f"💨 {name} charges past the monster for 1 HP", seat)
             case "lord":
                 skills = ", ".join(HEROES[Hero(h)].name for h in ev["skills"])
                 self._say(
@@ -737,6 +762,7 @@ class Room:
                 Phase.LOOT: 0.9,
                 Phase.CURSE: 1.0,
                 Phase.CHOOSE_TOKEN: 1.0,
+                Phase.TRANSFORM: 1.0,
                 Phase.CHALLENGE: 1.0,
                 Phase.STEAL: 1.0,
                 Phase.RETREAT: 0.9,
@@ -914,7 +940,7 @@ class Room:
             "pile": pile_summary(game.pile, game.rules.expansion) if peek else None,
             "bag_left": len(game.bag),
             "bag": bag_summary(game.bag, game.rules.expansion) if peek else None,
-            "dragon_seen": "dragon" not in game.bag,
+            "dragon_seen": "dragon" not in game.bag and "dragon" not in game.aside,
             "legal": [actions.to_json(a) for a in game.legal_actions(you)] if mine and you is not None else [],
             "result": self._result(game) if over else None,
             "time_left": None,

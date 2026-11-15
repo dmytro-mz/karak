@@ -36,6 +36,19 @@ next player. REINCARNATE for the Warrior at 0 HP with several fountains. GAME_OV
   Berserk heal choice is `EndTurn(heal_to)`; the acrobat's spare daggers live in spell slots (`carry_slot`).
 - Strengths of the bat (6) and ice mage (11) are our own choice: the rules text doesn't print them.
 
+## Karak: Sidhar, Kirima, Elspeth (`RulesConfig(sidhar=True)`, tests in `tests/test_sidhar.py`)
+
+- Heroes only (`SIDHAR_HEROES`: alchemist, beasthunter, princess), independent of `expansion`; no new tiles or tokens.
+- Alchemist: `Phase.TRANSFORM` after a token is drawn (and after the Oracle's pick): `Transform(redraw)` costs 1 HP,
+  set-aside tokens sit in `Game.aside` until he keeps one (then back into the bag). His last HP: he drops, the token
+  is laid down without a fight and he falls back like a loser. Skin of steel (`_steely`): a defeat by < 3 costs no life,
+  also in duels.
+- Beast hunter: `Protect(seat)` (1 move, heals 1, wakes the unconscious); `Tile.seen` is the turn a token was revealed,
+  `Combat.ambush` is set at the start of a fight and feeds `_fixed_bonus`. Tiles without `seen` count as old.
+- Princess: `RerollDie(i)` once per fight (`Combat.dual`, reset for the second half of a duel; separate from the
+  Warrior's `rerolled`); `Reposition(via, dir)` needs 2+ HP (our choice: the rules text is silent on 1 HP), may lay a
+  tile (`PendingTile.free`: the reposition already paid the move). Bots don't use reposition.
+
 ## Invariants (tested)
 
 - `legal_actions(seat)` is the single source of truth; `Game.step` raises `IllegalMove` and leaves state

@@ -89,7 +89,7 @@ class Checker:
         for name, selector, shot in [
             ("strike", f"{panel} .btn.strike", "strike"),
             ("roll", f"{panel} .btn.primary.big", "combat"),
-            ("token", f"{panel} .offer-btn", "foresight"),
+            ("token", f"{panel} .offer-btn:not(.static)", "foresight"),
             ("challenge", f"{panel} .curse-card", "challenge"),
             ("panel", f"{panel} .actions .btn", "panel"),
         ]:
@@ -118,7 +118,15 @@ class Checker:
 async def run(args: argparse.Namespace) -> int:
     shots = Path(args.shots)
     shots.mkdir(parents=True, exist_ok=True)
-    room = prepare("lobby", bots=args.bots, seed=args.seed, delay_scale=0.02, regent=args.regent, hero=args.hero)
+    room = prepare(
+        "lobby",
+        bots=args.bots,
+        seed=args.seed,
+        delay_scale=0.02,
+        regent=args.regent,
+        hero=args.hero,
+        sidhar=args.sidhar,
+    )
     room.settings.hints = True
     host = next(iter(room.members))
     room.handle(host, {"type": "start"})
@@ -127,7 +135,7 @@ async def run(args: argparse.Namespace) -> int:
         browser = await pw.chromium.launch(executable_path=CHROME, headless=not args.headed)
         page = await browser.new_page(viewport={"width": 1440, "height": 900}, reduced_motion="reduce")
         check = Checker(page, shots, args.seed)
-        check.regent = args.regent
+        check.regent = args.regent or args.sidhar
         await page.goto(url)
         await page.wait_for_selector(".board-svg")
         await check.smoke_dialogs()
@@ -160,6 +168,7 @@ def main() -> None:
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--port", type=int, default=8767)
     ap.add_argument("--regent", action="store_true")
+    ap.add_argument("--sidhar", action="store_true", help="switch on Karak: Sidhar, Kirima, Elspeth")
     ap.add_argument("--hero", default="warrior")
     ap.add_argument("--shots", default="shots/ui")
     raise SystemExit(asyncio.run(run(ap.parse_args())))

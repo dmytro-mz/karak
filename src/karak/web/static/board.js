@@ -224,7 +224,7 @@ export class Board {
       ghost: s("g", { class: "l-ghost" }),
     };
     this.svg = s("svg", { class: "board-svg", xmlns: "http://www.w3.org/2000/svg" }, this.defs, Object.values(this.layers));
-    for (const hero of ["warrior", "thief", "wizard", "warlock", "swordsman", "oracle", "barbarian", "battlemage", "acrobat", "ranger", "lord"]) {
+    for (const hero of ["warrior", "thief", "wizard", "warlock", "swordsman", "oracle", "barbarian", "battlemage", "acrobat", "ranger", "alchemist", "beasthunter", "princess", "lord"]) {
       this.defs.append(s("clipPath", { id: `clip-${hero}` }, s("circle", { cx: 0, cy: 0, r: 15 })));
     }
     this.el = this.svg;
@@ -472,6 +472,18 @@ export class Board {
             "g",
             { class: `spot ${a.type === "sprint" ? "teleport" : "move"} ${danger ? "danger" : ""}`, transform: `translate(${x * T} ${y * T})`, "data-act": JSON.stringify(a) },
             s("rect", { x: 3, y: 3, width: T - 6, height: T - 6, rx: 8, class: "spot-ring" }),
+          ),
+        );
+      } else if (a.type === "reposition") {
+        const [x, y] = [pos.x + DX[a.via] + DX[a.dir], pos.y + DY[a.via] + DY[a.dir]];
+        const unknown = !byPos.has(`${x},${y}`);
+        marks.push(
+          s(
+            "g",
+            { class: `spot ${unknown ? "explore" : "teleport"} danger`, transform: `translate(${x * T} ${y * T})`, "data-act": JSON.stringify(a) },
+            unknown ? s("use", { href: "#tile-back", x: 6, y: 6, width: T - 12, height: T - 12, opacity: 0.92 }) : null,
+            s("rect", { x: 3, y: 3, width: T - 6, height: T - 6, rx: 8, class: "spot-ring" }),
+            unknown ? s("text", { x: 50, y: 40, "text-anchor": "middle", class: "spot-q" }, "?") : null,
           ),
         );
       } else if (a.type === "reincarnate" || a.type === "cast_healing") {

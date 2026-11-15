@@ -19,6 +19,9 @@ export const HERO_FILL = {
   pink: ["#ec7fb0", "#8a2a5a"],
   olive: ["#a3b04a", "#4a5416"],
   ember: ["#b86cf0", "#3a1255"],
+  lime: ["#9ccf4a", "#3d6118"],
+  frost: ["#7fc4e8", "#245a86"],
+  violet: ["#b67be0", "#52247e"],
 };
 
 const INK = "#24160d";

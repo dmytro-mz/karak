@@ -168,6 +168,36 @@ class TakeLoot:
     """Regent barbarian: take the loot of a beaten monster (leaving it, `Loot(None)`, keeps his turn going)."""
 
 
+@dataclass(frozen=True)
+class Protect:
+    """Sidhar's Kirima (beast hunter): jump to another hero who is below full health and heal them 1 HP (1 move)."""
+
+    seat: int
+
+
+@dataclass(frozen=True)
+class Reposition:
+    """Sidhar's Elspeth (warrior princess): charge through the monster's tile next to her (direction `via`) and on to
+    the tile beyond it (direction `dir` from the monster's tile), for 1 move and 1 HP."""
+
+    via: int
+    dir: int
+
+
+@dataclass(frozen=True)
+class RerollDie:
+    """Sidhar's Elspeth (warrior princess): roll one die (0 or 1) again; the new value stands."""
+
+    die: int
+
+
+@dataclass(frozen=True)
+class Transform:
+    """Sidhar's alchemist: with a drawn token in front of him, `redraw` it for 1 HP, or keep it (False)."""
+
+    redraw: bool
+
+
 Action = (
     Move
     | Explore
@@ -194,6 +224,10 @@ Action = (
     | Steal
     | Thorn
     | TakeLoot
+    | Protect
+    | Reposition
+    | RerollDie
+    | Transform
 )
 
 
@@ -277,6 +311,17 @@ def from_json(data: object) -> Action:
             return Thorn(_int(data.get("seat"), "seat"))
         case "take_loot":
             return TakeLoot()
+        case "protect":
+            return Protect(_int(data.get("seat"), "seat"))
+        case "reposition":
+            return Reposition(_int(data.get("via"), "via"), _int(data.get("dir"), "dir"))
+        case "reroll_die":
+            return RerollDie(_int(data.get("die"), "die"))
+        case "transform":
+            redraw = data.get("redraw")
+            if not isinstance(redraw, bool):
+                raise BadAction("redraw must be true or false")
+            return Transform(redraw)
     raise BadAction("unknown action")
 
 
@@ -332,4 +377,12 @@ def to_json(action: Action) -> dict[str, Any]:
             return {"type": "thorn", "seat": seat}
         case TakeLoot():
             return {"type": "take_loot"}
+        case Protect(seat):
+            return {"type": "protect", "seat": seat}
+        case Reposition(via, d):
+            return {"type": "reposition", "via": via, "dir": d}
+        case RerollDie(die):
+            return {"type": "reroll_die", "die": die}
+        case Transform(redraw):
+            return {"type": "transform", "redraw": redraw}
     raise BadAction("unknown action")
