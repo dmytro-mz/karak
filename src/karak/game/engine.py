@@ -421,7 +421,7 @@ class Game:
                 out += [A.Teleport(q) for q in portals if q != p.pos]
             if self.has_skill(seat, Hero.BEASTHUNTER):
                 out += [A.Protect(s) for s, q in enumerate(self.players) if s != seat and q.hp < self.rules.max_hp]
-            if self.has_skill(seat, Hero.PRINCESS) and p.hp >= 2:
+            if self.has_skill(seat, Hero.PRINCESS):
                 out += self._reposition_options(p.pos)
             if self.has_skill(seat, Hero.WARLOCK) and self.used == 0:
                 for s, q in enumerate(self.players):
@@ -1019,7 +1019,25 @@ class Game:
         self._lose_life(target)
 
     # ------------------------------------------------------------------ combat
+    def _faint_if_down(self) -> bool:
+        """A hero who paid her last HP (the princess' charge) drops: no fight, back off a monster's tile, turn over."""
+        seat = self.current
+        p = self.players[seat]
+        if p.hp > 0 or p.knocked_out:
+            return False
+        if self.tiles[p.pos].monster:
+            back = next((q for q in reversed(self.trail[:-1]) if self.tiles[q].monster is None), p.came_from)
+            self._emit("retreat", frm=list(p.pos), to=list(back))
+            p.pos = p.came_from = back
+            self.trail.append(back)
+        self._lose_life(seat, 0)
+        self.relentless = False
+        self._end_turn()
+        return True
+
     def _start_combat(self, blitz: bool = False) -> None:
+        if self._faint_if_down():
+            return
         p = self.players[self.current]
         tile = self.tiles[p.pos]
         assert tile.monster is not None
@@ -1307,7 +1325,9 @@ class Game:
     # ------------------------------------------------------------------ turn flow
     def _settle(self) -> None:
         """Back in the TURN phase: end the turn by itself once nothing is left to do."""
-        if self.phase != Phase.TURN or self.moves_left:
+        if self.phase != Phase.TURN:
+            return
+        if self._faint_if_down() or self.moves_left:
             return
         if any(
             isinstance(a, A.Pickup | A.OpenChest) or (isinstance(a, A.EndTurn) and a.heal_to is not None)

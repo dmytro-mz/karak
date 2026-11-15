@@ -333,15 +333,34 @@ def test_reposition_charges_past_a_monster_for_a_move_and_a_life() -> None:
     assert game.tiles[EAST].token == "king" and game.phase == Phase.TURN
 
 
-def test_reposition_needs_two_hp_and_a_monster() -> None:
+def test_reposition_needs_a_monster() -> None:
     game = _game(Hero.PRINCESS, Hero.THIEF)
     _tile(game, EAST)
     _tile(game, Pos(2, 0))
     assert not any(isinstance(a, A.Reposition) for a in game.legal_actions(0))
     game.tiles[EAST].token = "rat"
     assert any(isinstance(a, A.Reposition) for a in game.legal_actions(0))
+    game.players[0].hp = 1  # her last HP may be spent: the player takes the consequences
+    assert any(isinstance(a, A.Reposition) for a in game.legal_actions(0))
+
+
+def test_reposition_on_the_last_hp_knocks_her_out() -> None:
+    game = _game(Hero.PRINCESS, Hero.THIEF)
     game.players[0].hp = 1
-    assert not any(isinstance(a, A.Reposition) for a in game.legal_actions(0))
+    _tile(game, EAST)
+    game.step(0, A.Move(1))
+    _tile(game, Pos(2, 0), token="king")
+    _tile(game, Pos(3, 0), token="rat")
+    game.step(0, A.Reposition(1, 1))  # lands on the rat with 0 HP: no fight, she falls back and drops
+    p = game.players[0]
+    assert p.knocked_out and p.hp == 0 and p.pos == EAST and game.current == 1
+    assert game.tiles[Pos(3, 0)].token == "rat"
+    quiet = _game(Hero.PRINCESS, Hero.THIEF)
+    quiet.players[0].hp = 1
+    _tile(quiet, EAST, token="king")
+    _tile(quiet, Pos(2, 0))
+    quiet.step(0, A.Reposition(1, 1))  # an empty tile beyond: she drops there and the turn ends
+    assert quiet.players[0].knocked_out and quiet.players[0].pos == Pos(2, 0) and quiet.current == 1
 
 
 def test_reposition_into_the_unknown_follows_the_exploring_rules() -> None:

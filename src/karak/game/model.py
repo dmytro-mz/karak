@@ -346,7 +346,7 @@ HEROES: dict[Hero, HeroDef] = {
                 (
                     "Tactical reposition",
                     "For 1 move and 1 HP, may charge through a tile with a monster onto a tile next to it, even an "
-                    "undiscovered one. Needs at least 2 HP.",
+                    "undiscovered one. Spending her last HP knocks her out.",
                 ),
             ),
         ),
