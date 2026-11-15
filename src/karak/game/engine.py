@@ -24,6 +24,7 @@ from karak.game.model import (
     LORD_CHAMBERS_NEEDED,
     MONSTERS,
     REGENT_HEROES,
+    SIDHAR_HEROES,
     SLOTS,
     Hero,
     Kind,
@@ -58,6 +59,7 @@ class Phase(StrEnum):
     RETREAT = "retreat"  # battle mage lost a blitz: which neighbouring tile to fall back to
     CHALLENGE = "challenge"  # arena: whom to summon for the duel
     STEAL = "steal"  # arena: the winner takes something from the loser
+    TRANSFORM = "transform"  # alchemist: keep the drawn token or pay 1 HP to draw another
     GAME_OVER = "game_over"
 
 
@@ -68,6 +70,7 @@ class RulesConfig:
     max_turns: int = 1500  # safety stop for bot games; the dragon ends real games long before
     expansion: bool = False  # Karak: Regent tiles, monsters, items and heroes
     lord: bool = False  # the Lord of Karak game version (needs the expansion)
+    sidhar: bool = False  # Karak: Sidhar, Kirima, Elspeth: three more heroes (works with or without the Regent)
 
     def __post_init__(self) -> None:
         if self.lord and not self.expansion:
@@ -139,6 +142,8 @@ class Combat:
     target: int = 0  # duel: the challenger's total
     thief0: bool = False  # duel: the challenger wins ties
     relent: bool = False  # duel: the challenger rolled a six with the swordsman's skill
+    ambush: bool = False  # the monster was revealed on an earlier turn (beast hunter's +1)
+    dual: bool = False  # the warrior princess has used her one die re-roll in this fight
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -155,6 +160,8 @@ class Combat:
             "stage": self.stage,
             "target": self.target,
             "thief0": self.thief0,
+            "ambush": self.ambush,
+            "dual": self.dual,
         }
 
 
@@ -165,6 +172,7 @@ class PendingTile:
     mask: int
     rotations: list[int]
     enter: bool = True  # False: the ranger eavesdrops, the tile is laid but nobody steps onto it
+    free: bool = False  # the warrior princess' reposition already paid the move for laying this tile
 
 
 @dataclass(frozen=True)
@@ -222,7 +230,7 @@ class View:
     def combat_bonus(self, seat: int) -> int:
         """Fixed bonus of the fight on the table (see `Game.combat_bonus`)."""
         assert self.combat is not None
-        return _fixed_bonus(self.players[seat], self.skills(seat), self.combat.first_move)
+        return _fixed_bonus(self.players[seat], self.skills(seat), self.combat.first_move, self.combat.ambush)
 
 
 def weapon_power(p: Player, skills: frozenset[Hero]) -> int:
@@ -234,8 +242,9 @@ def weapon_power(p: Player, skills: frozenset[Hero]) -> int:
     return total
 
 
-def _fixed_bonus(p: Player, sk: frozenset[Hero], first_move: bool) -> int:
+def _fixed_bonus(p: Player, sk: frozenset[Hero], first_move: bool, ambush: bool = False) -> int:
     foresight = 1 if Hero.ORACLE in sk and first_move else 0
+    foresight += 1 if Hero.BEASTHUNTER in sk and ambush else 0
     arcane = p.spells.count("bolt") + 2 * p.spells.count("frost") if Hero.WIZARD in sk else 0
     return weapon_power(p, sk) + foresight + arcane + berserk_bonus(p.hp, sk)
 
@@ -258,9 +267,13 @@ class Game:
         if not 1 <= len(heroes) <= 5 or len(set(heroes)) != len(heroes):
             raise ValueError("1-5 different heroes")
         self.rules = rules or RulesConfig()
-        allowed = (*BASE_HEROES, *REGENT_HEROES) if self.rules.expansion else BASE_HEROES
+        allowed = (
+            *BASE_HEROES,
+            *(REGENT_HEROES if self.rules.expansion else ()),
+            *(SIDHAR_HEROES if self.rules.sidhar else ()),
+        )
         if any(h not in allowed for h in heroes):
-            raise ValueError("That hero needs the Regent expansion")
+            raise ValueError("That hero needs an expansion")
         self.rng = random.Random(seed)
         self.tiles: dict[Pos, Tile] = {START: Tile(0, START, Kind.START, 0b1111)}
         self.pile = tile_pile(self.rules.expansion)
@@ -285,6 +298,7 @@ class Game:
         self.spoils: tuple[int, int] | None = None  # (winner, loser) of a duel while the winner picks
         self.offer_at: Pos | None = None
         self.offer_enter = True
+        self.aside: list[str] = []  # tokens the alchemist has set aside this draw (back in the bag afterwards)
         self.result: Result | None = None
         self.dragon_slain_by: int | None = None
         self._events: list[Event] = []
@@ -346,6 +360,8 @@ class Game:
                 return [A.Place(r) for r in self.pending.rotations]
             case Phase.CHOOSE_TOKEN:
                 return [A.ChooseToken(i) for i in range(len(self.offer))]
+            case Phase.TRANSFORM:
+                return [A.Transform(False)] + ([A.Transform(True)] if self.bag else [])
             case Phase.COMBAT:
                 assert self.combat is not None
                 return [A.Roll()] + ([A.Sneak()] if self.combat.can_sneak else [])
@@ -353,6 +369,8 @@ class Game:
                 out: list[Action] = []
                 if self.has_skill(seat, Hero.WARRIOR) and self.combat and not self.combat.rerolled:
                     out.append(A.Reroll())
+                if self.has_skill(seat, Hero.PRINCESS) and self.combat and not self.combat.dual:
+                    out += [A.RerollDie(0), A.RerollDie(1)]
                 wizard = self.has_skill(seat, Hero.WIZARD)  # arcane focus: spells count by themselves
                 bolts = 0 if wizard else p.spells.count("bolt")
                 fists = 0 if wizard else p.spells.count("frost")
@@ -401,6 +419,10 @@ class Game:
             portals = self.portals()
             if here.kind == Kind.PORTAL and len(portals) > 1:
                 out += [A.Teleport(q) for q in portals if q != p.pos]
+            if self.has_skill(seat, Hero.BEASTHUNTER):
+                out += [A.Protect(s) for s, q in enumerate(self.players) if s != seat and q.hp < self.rules.max_hp]
+            if self.has_skill(seat, Hero.PRINCESS):
+                out += self._reposition_options(p.pos)
             if self.has_skill(seat, Hero.WARLOCK) and self.used == 0:
                 for s, q in enumerate(self.players):
                     if s != seat and q.pos != p.pos:
@@ -427,6 +449,25 @@ class Game:
         if here.monster is None:  # a thief who slipped past a monster has to keep moving
             out.append(A.EndTurn())
             out += [A.EndTurn(h) for h in self._heal_choices(seat)]
+        return out
+
+    def _reposition_options(self, src: Pos) -> list[A.Action]:
+        """The warrior princess charges through an adjacent monster's tile onto any tile next to that one."""
+        out: list[A.Action] = []
+        for via in DIRS:
+            mid = step(src, via)
+            if not self.connected(src, via) or not self.tiles[mid].monster:
+                continue
+            for d in DIRS:
+                to = step(mid, d)
+                if to == src:
+                    continue
+                if to in self.tiles:
+                    ok = self.connected(mid, d)
+                else:
+                    ok = has_exit(self.tiles[mid].exits, d) and bool(self.pile)
+                if ok:
+                    out.append(A.Reposition(via, d))
         return out
 
     def _heal_choices(self, seat: int) -> list[int]:
@@ -508,6 +549,14 @@ class Game:
                 self._swap(other)
             case A.Sprint(to):
                 self._sprint(to)
+            case A.Protect(other):
+                self._protect(other)
+            case A.Reposition(via, d):
+                self._reposition(via, d)
+            case A.RerollDie(die):
+                self._roll(reroll=True, only=die)
+            case A.Transform(redraw):
+                self._transform(redraw)
             case A.Blitz(at):
                 self._blitz(at)
             case A.ChooseToken(i):
@@ -582,6 +631,35 @@ class Game:
         self._relocate(seat, to)
         self._arrive()
 
+    def _protect(self, other: int) -> None:
+        """Beast hunter: jump to a hurt hero's tile (1 move) and heal them 1 HP; an unconscious hero wakes up."""
+        seat = self.current
+        p, q = self.players[seat], self.players[other]
+        self.used += 1
+        self._emit("protect", target=other, frm=list(p.pos), to=list(q.pos))
+        q.hp = min(self.rules.max_hp, q.hp + 1)
+        q.knocked_out = False
+        if q.pos == p.pos:
+            self._settle()
+            return
+        self._relocate(seat, q.pos)
+        self._arrive()
+
+    def _reposition(self, via: int, d: int) -> None:
+        """Warrior princess: charge through the monster next to her for 1 move and 1 HP."""
+        seat = self.current
+        p = self.players[seat]
+        mid = step(p.pos, via)
+        to = step(mid, d)
+        self.used += 1
+        p.hp -= 1
+        self._emit("reposition", frm=list(p.pos), via=list(mid), to=list(to))
+        if to in self.tiles:
+            self._relocate(seat, to)
+            self._arrive()
+        else:
+            self._explore(d, enter=True, origin=mid, free=True)
+
     def _blitz(self, at: Pos) -> None:
         seat = self.current
         self.used = self.rules.moves
@@ -589,10 +667,10 @@ class Game:
         self._relocate(seat, at)
         self._start_combat(blitz=True)
 
-    def _explore(self, d: int, enter: bool) -> None:
+    def _explore(self, d: int, enter: bool, origin: Pos | None = None, free: bool = False) -> None:
         p = self.players[self.current]
         kind, mask = self.pile.pop()
-        target = step(p.pos, d)
+        target = step(origin or p.pos, d)
         back = opposite(d)
         seen: set[int] = set()
         rotations = []
@@ -601,7 +679,7 @@ class Game:
             if has_exit(m, back) and m not in seen:
                 seen.add(m)
                 rotations.append(r)
-        self.pending = PendingTile(target, kind, mask, rotations, enter)
+        self.pending = PendingTile(target, kind, mask, rotations, enter, free)
         self._emit("draw_tile", at=list(target), tile=kind.value, mask=mask, rotations=rotations, enter=enter)
         if len(rotations) == 1:
             self._place(rotations[0])
@@ -613,7 +691,8 @@ class Game:
         pend, self.pending = self.pending, None
         tile = Tile(len(self.tiles), pend.pos, pend.kind, rotate(pend.mask, r))
         self.tiles[pend.pos] = tile
-        self.used += 1
+        if not pend.free:
+            self.used += 1
         p = self.players[self.current]
         self._emit("place", tile=tile.to_json(), frm=list(p.pos), enter=pend.enter)
         if pend.enter:
@@ -627,7 +706,7 @@ class Game:
                 self.phase = Phase.CHOOSE_TOKEN
                 self._emit("offer", tokens=list(self.offer))
                 return
-            self._reveal(tile, self.bag.pop(), pend.enter)
+            self._drawn(tile, self.bag.pop(), pend.enter)
             return
         self._awaken_dragon()
         if pend.enter and self._on_enter():
@@ -643,10 +722,63 @@ class Game:
         self._emit("choose_token", kept=keep, returned=returned)
         self.phase = Phase.TURN
         assert self.offer_at is not None
-        self._reveal(self.tiles[self.offer_at], keep, self.offer_enter)
+        self._drawn(self.tiles[self.offer_at], keep, self.offer_enter)
+
+    def _drawn(self, tile: Tile, token: str, enter: bool) -> None:
+        """A token came out of the bag for `tile`: the alchemist may still swap it before it is revealed."""
+        if self.has_skill(self.current, Hero.ALCHEMIST) and self.bag:
+            self.offer = [token]
+            self.offer_at, self.offer_enter = tile.pos, enter
+            self.phase = Phase.TRANSFORM
+            return
+        self._reveal(tile, token, enter)
+
+    def _transform(self, redraw: bool) -> None:
+        token = self.offer[0]
+        assert self.offer_at is not None
+        tile, enter = self.tiles[self.offer_at], self.offer_enter
+        p = self.players[self.current]
+        if not redraw:
+            self.offer = []
+            self._return_aside()
+            self._emit("transform_keep", token=token)
+            self.phase = Phase.TURN
+            self._reveal(tile, token, enter)
+            return
+        p.hp -= 1
+        self.aside.append(token)
+        new = self.bag.pop()
+        self._emit("transform", discarded=token, token=new, hp=p.hp)
+        if p.hp > 0:
+            self.offer = [new]
+            return
+        # His last HP went into the potion: he drops, the token is laid down but he does not meet it.
+        self.offer = []
+        self._return_aside()
+        self.phase = Phase.TURN
+        tile.token = new
+        tile.seen = self.turn
+        self._emit("token", at=list(tile.pos), token=new)
+        if new == "dragon":
+            self._emit("dragon", at=list(tile.pos))
+        if enter and p.pos == tile.pos:
+            back = next((q for q in reversed(self.trail[:-1]) if self.tiles[q].monster is None), p.came_from)
+            self._emit("retreat", frm=list(tile.pos), to=list(back))
+            p.pos = p.came_from = back
+            self.trail.append(back)
+        self._lose_life(self.current, 0)
+        self._awaken_dragon()
+        self.relentless = False
+        self._end_turn()
+
+    def _return_aside(self) -> None:
+        for token in self.aside:
+            self.bag.insert(self.rng.randrange(len(self.bag) + 1), token)
+        self.aside = []
 
     def _reveal(self, tile: Tile, token: str, enter: bool = True) -> None:
         tile.token = token
+        tile.seen = self.turn
         self._emit("token", at=list(tile.pos), token=token)
         if token == "dragon":
             self._emit("dragon", at=list(tile.pos))
@@ -670,6 +802,7 @@ class Game:
         rooms = rooms or candidates or list(self.tiles.values())
         lair = max(rooms, key=lambda t: (dist.get(t.pos, -1), -t.id))
         lair.token = "dragon"
+        lair.seen = self.turn
         self._emit("dragon_awakens", at=list(lair.pos))
 
     def _distances(self, src: Pos) -> dict[Pos, int]:
@@ -784,6 +917,7 @@ class Game:
             c.thief0 = self.has_skill(seat, Hero.THIEF)
             c.relent = self.has_skill(seat, Hero.SWORDSMAN) and 6 in c.dice
             c.stage, c.dice, c.rerolled, c.first_move = 1, [], False, True  # the summoned oracle always foresees
+            c.dual = False
             self.phase = Phase.COMBAT
             return
         challenger, defender = self.current, c.versus
@@ -800,7 +934,7 @@ class Game:
         self.tiles[c.at].spent = True
         self.combat = None
         relentless = c.relent
-        if loser is not None:
+        if loser is not None and not self._steely(loser, abs(c.target - total)):
             self._lose_life(loser)
         for s in range(self.n):  # blood price can bring the winner to 0 HP too
             if self.players[s].hp <= 0 and not self.players[s].knocked_out:
@@ -885,7 +1019,25 @@ class Game:
         self._lose_life(target)
 
     # ------------------------------------------------------------------ combat
+    def _faint_if_down(self) -> bool:
+        """A hero who paid her last HP (the princess' charge) drops: no fight, back off a monster's tile, turn over."""
+        seat = self.current
+        p = self.players[seat]
+        if p.hp > 0 or p.knocked_out:
+            return False
+        if self.tiles[p.pos].monster:
+            back = next((q for q in reversed(self.trail[:-1]) if self.tiles[q].monster is None), p.came_from)
+            self._emit("retreat", frm=list(p.pos), to=list(back))
+            p.pos = p.came_from = back
+            self.trail.append(back)
+        self._lose_life(seat, 0)
+        self.relentless = False
+        self._end_turn()
+        return True
+
     def _start_combat(self, blitz: bool = False) -> None:
+        if self._faint_if_down():
+            return
         p = self.players[self.current]
         tile = self.tiles[p.pos]
         assert tile.monster is not None
@@ -893,37 +1045,48 @@ class Game:
         sneak = self.has_skill(self.current, Hero.THIEF) and self.phase != Phase.COMBAT and self.moves_left > 0
         # Retreat to the last tile of this turn without a monster (past any the thief slipped by).
         back = next((q for q in reversed(self.trail[:-1]) if self.tiles[q].monster is None), p.came_from)
-        self.combat = Combat(tile.monster, p.pos, back, first_move=self.used == 1, can_sneak=sneak, blitz=blitz)
+        ambush = tile.seen is None or tile.seen < self.turn
+        self.combat = Combat(
+            tile.monster, p.pos, back, first_move=self.used == 1, can_sneak=sneak, blitz=blitz, ambush=ambush
+        )
         self.phase = Phase.COMBAT
         self._emit("combat", monster=tile.monster, at=list(p.pos))
 
     def _d6(self) -> int:
         return self.rng.randint(1, 6)
 
-    def _roll(self, reroll: bool) -> None:
+    def _roll(self, reroll: bool, only: int | None = None) -> None:
+        """Roll both dice, or (`only`) just that one again: the princess' dual wielding."""
         assert self.combat is not None
         seat = self.actor
-        dice = [self._d6(), self._d6()]
+        dice = list(self.combat.dice) if only is not None else [0, 0]
+        which = range(2) if only is None else [only]
+        for i in which:
+            dice[i] = self._d6()
         steadied = 0
         if self.has_skill(seat, Hero.SWORDSMAN):
-            for i in range(2):
+            for i in which:
                 while dice[i] == 1:
                     dice[i] = self._d6()
                     steadied += 1
         bear = 0
         if self.has_skill(seat, Hero.RANGER):  # the bear turns every 1 into a 6
-            for i in range(2):
+            for i in which:
                 if dice[i] == 1:
                     dice[i] = 6
                     bear += 1
         self.combat.dice = dice
-        self.combat.rerolled = self.combat.rerolled or reroll
+        if only is None:
+            self.combat.rerolled = self.combat.rerolled or reroll
+        else:
+            self.combat.dual = True
         self.phase = Phase.ROLLED
         self._emit(
             "roll",
             _seat=seat,
             dice=list(dice),
             reroll=reroll,
+            die=only,
             steadied=steadied,
             bear=bear,
             monster=self.combat.monster,
@@ -932,7 +1095,7 @@ class Game:
     def combat_bonus(self, seat: int) -> int:
         """Fixed bonus before spent spells and blood price: weapons, foresight, berserk, the wizard's spells."""
         assert self.combat is not None
-        return _fixed_bonus(self.players[seat], self.skills(seat), self.combat.first_move)
+        return _fixed_bonus(self.players[seat], self.skills(seat), self.combat.first_move, self.combat.ambush)
 
     def _strike(self, bolts: int, sacrifice: bool, fists: int) -> None:
         c = self.combat
@@ -967,6 +1130,7 @@ class Game:
             fists=fists,
             sacrifice=sacrifice,
             outcome=outcome,
+            unhurt=outcome == "loss" and self._steely(seat, monster.strength - total),
         )
         self.combat = None
         tile = self.tiles[c.at]
@@ -981,7 +1145,7 @@ class Game:
             if c.monster == "mummy" and self.n > 1:
                 self.curse_pending = True
         else:
-            if outcome == "loss":
+            if outcome == "loss" and not self._steely(seat, monster.strength - total):
                 p.hp -= 1
             if c.blitz:  # the battle mage picks where to fall back to
                 self.combat = c
@@ -995,6 +1159,10 @@ class Game:
             if self.tiles[c.back].kind == Kind.CURSED:
                 self._curse_roll(seat)  # a hero thrown back onto a cursed chamber rolls again
         self._after_fight(relentless)
+
+    def _steely(self, seat: int, margin: int) -> bool:
+        """The alchemist's skin of steel: a defeat by less than 3 costs him no life."""
+        return self.has_skill(seat, Hero.ALCHEMIST) and margin < 3
 
     def _retreat(self, d: int) -> None:
         c = self.combat
@@ -1157,7 +1325,9 @@ class Game:
     # ------------------------------------------------------------------ turn flow
     def _settle(self) -> None:
         """Back in the TURN phase: end the turn by itself once nothing is left to do."""
-        if self.phase != Phase.TURN or self.moves_left:
+        if self.phase != Phase.TURN:
+            return
+        if self._faint_if_down() or self.moves_left:
             return
         if any(
             isinstance(a, A.Pickup | A.OpenChest) or (isinstance(a, A.EndTurn) and a.heal_to is not None)
@@ -1210,7 +1380,7 @@ class Game:
 
 
 def _copy_tile(t: Tile) -> Tile:
-    return Tile(t.id, t.pos, t.kind, t.exits, t.token, list(t.items), t.spent)
+    return Tile(t.id, t.pos, t.kind, t.exits, t.token, list(t.items), t.spent, t.seen)
 
 
 def _copy_player(p: Player) -> Player:
@@ -1241,6 +1411,7 @@ def _why(game: Game, action: Action) -> str:
         Phase.RETREAT: "Choose where to fall back to first",
         Phase.CHALLENGE: "Choose who to challenge first",
         Phase.STEAL: "Choose what to take from the loser first",
+        Phase.TRANSFORM: "Keep the token or draw another first",
     }
     if game.phase in phase_needs:
         return phase_needs[game.phase]

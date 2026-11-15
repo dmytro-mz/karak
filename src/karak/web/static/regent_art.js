@@ -6,6 +6,7 @@ import { s } from "./dom.js";
 import { E, L, scroll, star4 } from "./items.js";
 import { INK, NECK, SH, heroKit, mirrorAll, monsterKit, skull, sockets, tools } from "./portraits.js";
 import { RAW_HERO_KEYS, arenaTileArt, frostFistArt, rawHeroArt } from "./regent_portraits.js";
+import { SIDHAR_HERO_KEYS, sidharHeroArt } from "./sidhar_portraits.js";
 
 const mir = (d) => mirrorAll(d);
 const wrapPal = (pal) => Object.fromEntries(Object.entries(pal).map(([n, v]) => [n, [v]]));
@@ -30,12 +31,13 @@ const lordArt = (k, t) => [
   t.ln("M30 36 H71", 0.8),
 ];
 
-export const HERO_ART_KEYS = [...RAW_HERO_KEYS, "lord"];
+export const HERO_ART_KEYS = [...RAW_HERO_KEYS, ...SIDHAR_HERO_KEYS, "lord"];
 export function regentHeroArt(key) {
   if (key === "lord") {
     const k = heroKit();
     return lordArt(k, tools(k, wrapPal(LORD_PAL))).join("");
   }
+  if (SIDHAR_HERO_KEYS.includes(key)) return sidharHeroArt(key);
   return rawHeroArt(key);
 }
 

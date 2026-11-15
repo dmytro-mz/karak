@@ -1,23 +1,23 @@
 // Detailed hero busts for Karak: Regent (and a new Warrior option), drawn as raw SVG in a 100×100 box.
 // Original drawings; the character concepts follow the heroes of the expansion (armour, hair, companions).
 
-const INK = "#24160d";
-const r2 = (n) => Math.round(n * 100) / 100;
-const st = (w) => (w ? `stroke="${INK}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"` : "");
-const P = (d, fill, w = 1.8, extra = "") => `<path d="${d}" fill="${fill}" ${st(w)} ${extra}/>`;
-const C = (cx, cy, r, fill, w = 1.2) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" ${st(w)}/>`;
-const EL = (cx, cy, rx, ry, fill, w = 1.2, extra = "") => `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fill}" ${st(w)} ${extra}/>`;
-const LN = (d, w = 1, c = INK, op = 1) => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" opacity="${op}" stroke-linecap="round" stroke-linejoin="round"/>`;
-const HL = (d, w = 1.2, op = 0.7) => LN(d, w, "#ffffff", op);
-const SHADE = (d, op = 0.22, c = "#1a0c06") => `<path d="${d}" fill="${c}" opacity="${op}"/>`;
-const stops = (list) => list.map(([o, c, a = 1]) => `<stop offset="${o}" stop-color="${c}" stop-opacity="${a}"/>`).join("");
-const LIN = (id, list, [x1, y1, x2, y2] = [0, 0, 0, 1]) => `<linearGradient id="${id}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stops(list)}</linearGradient>`;
-const RAD = (id, list, [cx, cy, r] = [0.5, 0.5, 0.5]) => `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${stops(list)}</radialGradient>`;
-const RIVET = (x, y, r = 1.15, c = "#e9eef2") => `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" stroke="${INK}" stroke-width="0.7"/><circle cx="${r2(x - r * 0.3)}" cy="${r2(y - r * 0.3)}" r="${r2(r * 0.38)}" fill="#fff" opacity="0.85"/>`;
+export const INK = "#24160d";
+export const r2 = (n) => Math.round(n * 100) / 100;
+export const st = (w) => (w ? `stroke="${INK}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round"` : "");
+export const P = (d, fill, w = 1.8, extra = "") => `<path d="${d}" fill="${fill}" ${st(w)} ${extra}/>`;
+export const C = (cx, cy, r, fill, w = 1.2) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" ${st(w)}/>`;
+export const EL = (cx, cy, rx, ry, fill, w = 1.2, extra = "") => `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fill}" ${st(w)} ${extra}/>`;
+export const LN = (d, w = 1, c = INK, op = 1) => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" opacity="${op}" stroke-linecap="round" stroke-linejoin="round"/>`;
+export const HL = (d, w = 1.2, op = 0.7) => LN(d, w, "#ffffff", op);
+export const SHADE = (d, op = 0.22, c = "#1a0c06") => `<path d="${d}" fill="${c}" opacity="${op}"/>`;
+export const stops = (list) => list.map(([o, c, a = 1]) => `<stop offset="${o}" stop-color="${c}" stop-opacity="${a}"/>`).join("");
+export const LIN = (id, list, [x1, y1, x2, y2] = [0, 0, 0, 1]) => `<linearGradient id="${id}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stops(list)}</linearGradient>`;
+export const RAD = (id, list, [cx, cy, r] = [0.5, 0.5, 0.5]) => `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${stops(list)}</radialGradient>`;
+export const RIVET = (x, y, r = 1.15, c = "#e9eef2") => `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}" stroke="${INK}" stroke-width="0.7"/><circle cx="${r2(x - r * 0.3)}" cy="${r2(y - r * 0.3)}" r="${r2(r * 0.38)}" fill="#fff" opacity="0.85"/>`;
 // Mirror a path left↔right (only coordinate pairs; never use H/V in mirrored paths).
-const MX = (d) => d.replace(/(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/g, (_, x, y) => `${r2(100 - +x)} ${y}`);
-const MIRROR = (...kids) => `<g transform="translate(100 0) scale(-1 1)">${kids.join("")}</g>`;
-const EYE = (cx, cy, iris, { w = 4.6, open = 3.6, look = 0 } = {}) => {
+export const MX = (d) => d.replace(/(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/g, (_, x, y) => `${r2(100 - +x)} ${y}`);
+export const MIRROR = (...kids) => `<g transform="translate(100 0) scale(-1 1)">${kids.join("")}</g>`;
+export const EYE = (cx, cy, iris, { w = 4.6, open = 3.6, look = 0 } = {}) => {
   const almond = `M${cx - w} ${cy} Q${cx} ${cy - open * 1.25} ${cx + w} ${cy} Q${cx} ${cy + open * 0.85} ${cx - w} ${cy}Z`;
   return (
     P(almond, "#fffaf0", 0.9) +

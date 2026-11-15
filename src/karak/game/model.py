@@ -177,11 +177,15 @@ class Hero(StrEnum):
     BATTLEMAGE = "battlemage"
     ACROBAT = "acrobat"
     RANGER = "ranger"
+    ALCHEMIST = "alchemist"  # Karak: Sidhar, Kirima, Elspeth
+    BEASTHUNTER = "beasthunter"
+    PRINCESS = "princess"
     LORD = "lord"  # the possessed hero of the Lord of Karak game; never picked at the lobby
 
 
 BASE_HEROES = (Hero.WARRIOR, Hero.THIEF, Hero.WIZARD, Hero.WARLOCK, Hero.SWORDSMAN, Hero.ORACLE)
 REGENT_HEROES = (Hero.BARBARIAN, Hero.BATTLEMAGE, Hero.ACROBAT, Hero.RANGER)
+SIDHAR_HEROES = (Hero.ALCHEMIST, Hero.BEASTHUNTER, Hero.PRINCESS)  # Karak: Sidhar, Kirima, Elspeth (heroes only)
 
 
 @dataclass(frozen=True)
@@ -303,6 +307,50 @@ HEROES: dict[Hero, HeroDef] = {
             ),
         ),
         HeroDef(
+            Hero.ALCHEMIST,
+            "Alchemist",
+            (
+                (
+                    "Skin of steel",
+                    "Loses no HP in a fight he loses by less than 3 (only a total 3 or more below the monster's "
+                    "strength hurts).",
+                ),
+                (
+                    "Transformation",
+                    "After drawing a token from the bag, may set it aside and draw another for 1 HP (even his last: "
+                    "then he falls unconscious and does not meet the token). May repeat; the set-aside tokens go "
+                    "back into the bag.",
+                ),
+            ),
+        ),
+        HeroDef(
+            Hero.BEASTHUNTER,
+            "Beast hunter",
+            (
+                (
+                    "Protector",
+                    "For 1 move, may jump to the tile of any other hero who is below full health and heal them 1 HP "
+                    "(an unconscious hero wakes up and does not miss a turn).",
+                ),
+                ("Ambush", "+1 when fighting a monster that was revealed on an earlier turn."),
+            ),
+        ),
+        HeroDef(
+            Hero.PRINCESS,
+            "Warrior princess",
+            (
+                (
+                    "Dual wielding",
+                    "In every fight may roll one of her dice again if she doesn't like it, and must keep the new roll.",
+                ),
+                (
+                    "Tactical reposition",
+                    "For 1 move and 1 HP, may charge through a tile with a monster onto a tile next to it, even an "
+                    "undiscovered one. Spending her last HP knocks her out.",
+                ),
+            ),
+        ),
+        HeroDef(
             Hero.LORD,
             "Lord of Karak",
             (("All skills", "Has the skills of every other hero at the table (and keeps its own with 2 players)."),),
@@ -320,6 +368,7 @@ class Tile:
     token: str | None = None  # monster key or CHEST
     items: list[str] = field(default_factory=list)  # equipment lying on the floor
     spent: bool = False  # Regent: an arena whose duel has been fought is an ordinary corridor
+    seen: int | None = None  # the game turn when this tile's token was revealed (beast hunter's ambush)
 
     @property
     def monster(self) -> str | None:

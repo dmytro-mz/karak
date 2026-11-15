@@ -33,14 +33,15 @@ def prepare(
     delay_scale: float = 0.0,
     regent: bool = False,
     hero: str = "warrior",
+    sidhar: bool = False,
 ) -> Room:
     """A room with one human ("Dima", token TOKEN) and bots, fast-forwarded to `stage`."""
     room = Room("DEMO", delay_scale=delay_scale, seed=seed)
     me = room.join(TOKEN, "Dima")
     for key in ["champion", "adventurer", "squire", "champion"][:bots]:
         room.handle(me.id, {"type": "add_bot", "bot": key})
-    if regent:
-        room.handle(me.id, {"type": "settings", "changes": {"expansion": True, "lord": True}})
+    if regent or sidhar:
+        room.handle(me.id, {"type": "settings", "changes": {"expansion": regent, "lord": regent, "sidhar": sidhar}})
     room.handle(me.id, {"type": "pick_hero", "hero": hero})
     if stage == "lobby":
         return room

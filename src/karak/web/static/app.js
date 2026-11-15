@@ -173,7 +173,7 @@ function showHome() {
         h(
           "div",
           { class: "hero-row" },
-          S.config.heroes.filter((x) => x.pickable && !x.expansion).map((hero, i) => h("span", { class: "bob", style: { animationDelay: `${-i * 0.5}s` } }, heroPortrait(hero.key, hero.color, 58))),
+          S.config.heroes.filter((x) => x.pickable && !x.expansion && !x.sidhar).map((hero, i) => h("span", { class: "bob", style: { animationDelay: `${-i * 0.5}s` } }, heroPortrait(hero.key, hero.color, 58))),
         ),
         h("p", { class: "tagline" }, "Descend beneath the ruined castle, map the labyrinth tile by tile, battle its monsters for their loot, unlock the treasure chests and slay the Dragon. Play with friends in the browser and fill empty seats with bots."),
         h(
@@ -406,7 +406,7 @@ function playEffects(st, events) {
             banner("tie", "A stand-off", `${sub}: ${name} falls back`);
           } else {
             sfx.hurt();
-            banner("loss", `The ${m.name} wins`, `${sub}: ${name} is wounded`);
+            banner("loss", `The ${m.name} wins`, ev.unhurt ? `${sub}: ${name}'s skin of steel holds` : `${sub}: ${name} is wounded`);
           }
         }, 150);
         break;
@@ -432,7 +432,16 @@ function playEffects(st, events) {
         banner("loss", `${seatName(st, ev.seat)} is knocked out`, "and misses the next turn");
         break;
       case "sprint":
+      case "reposition":
         sfx.step();
+        break;
+      case "transform":
+        sfx.portal();
+        banner("tie", "⚗️ Transformation!", `${name} pays 1 HP and draws again`, 1400);
+        break;
+      case "protect":
+        sfx.heal();
+        banner("win", "🛡 Protector!", `${name} shields ${seatName(st, ev.target)}`, 1600);
         break;
       case "blitz":
         sfx.portal();
@@ -466,7 +475,7 @@ function playEffects(st, events) {
         break;
     }
   }
-  const moved = [...events].reverse().find((e) => ["move", "place", "teleport", "retreat", "swap", "reincarnate", "cast_healing", "sprint", "blitz"].includes(e.kind));
+  const moved = [...events].reverse().find((e) => ["move", "place", "teleport", "retreat", "swap", "reincarnate", "cast_healing", "sprint", "blitz", "protect", "reposition"].includes(e.kind));
   if (moved && S.board) {
     const p = st.game.players[moved.kind === "cast_healing" ? moved.target : moved.seat];
     if (p) S.board.focus(p.x, p.y);
@@ -765,7 +774,7 @@ function showRules() {
         h(
           "div",
           { class: "hero-rules" },
-          S.config.heroes.filter((x) => x.pickable && !x.expansion).map(heroRule),
+          S.config.heroes.filter((x) => x.pickable && !x.expansion && !x.sidhar).map(heroRule),
         ),
         h("h4", {}, "Karak: Regent (optional expansion, switched on in the table rules)"),
         h(
@@ -779,6 +788,9 @@ function showRules() {
         ),
         h("div", { class: "bestiary" }, regentMonsters.map(beast)),
         h("div", { class: "hero-rules" }, S.config.heroes.filter((x) => x.expansion).map(heroRule), S.config.heroes.filter((x) => !x.pickable).map(heroRule)),
+        h("h4", {}, "Karak: Sidhar, Kirima, Elspeth (optional expansion, switched on in the table rules)"),
+        h("p", {}, "Three more heroes, no new tiles or tokens. They can join with or without the Regent."),
+        h("div", { class: "hero-rules" }, S.config.heroes.filter((x) => x.sidhar).map(heroRule)),
         h("h4", {}, "Controls"),
         h("ul", {}, h("li", {}, "Click a glowing tile (or use the arrow keys / WASD) to walk or explore. ", h("b", {}, "Space"), " rolls and strikes, ", h("b", {}, "E"), " ends your turn, ", h("b", {}, "H"), " asks for a hint, ", h("b", {}, "0"), " recentres the map.")),
         h("p", { class: "small-print" }, "House rule: if the labyrinth can't grow any more while the Dragon is still in the bag, it wakes up in the empty room farthest from the start."),
@@ -868,7 +880,7 @@ function renderLobby(st, main) {
       navigator.share ? h("button", { class: "btn", onclick: () => navigator.share({ title: "Play Karak with me", url: inviteUrl() }).catch(() => {}) }, "Share") : null,
     ),
   );
-  const lobbyHeroes = S.config.heroes.filter((x) => x.pickable && (!x.expansion || st.settings.expansion));
+  const lobbyHeroes = S.config.heroes.filter((x) => x.pickable && (!x.expansion || st.settings.expansion) && (!x.sidhar || st.settings.sidhar));
   const taken = new Map(st.seats.filter((s) => s.hero).map((s) => [s.hero, s]));
   const seatRows = st.seats.map((s, i) => {
     const bot = s.bot ? botInfo(s.bot) : null;
@@ -988,6 +1000,7 @@ function renderLobby(st, main) {
       row("Bot speed", "How fast bots play", select("bot_speed", [["slow", "Relaxed"], ["normal", "Normal"], ["fast", "Fast"]])),
       row("Hints", "Players may ask the Champion bot for advice", toggle("hints")),
       row("Karak: Regent expansion", "Adds battle arenas, cursed chambers and more chambers, four heroes (Barbarian, Battle mage, Acrobat, Ranger), bats, ice mages and two new spells. The trained AI bot only knows the base game", toggle("expansion")),
+      row("Karak: Sidhar, Kirima, Elspeth", "Adds three heroes: Sidhar the Alchemist, Kirima the Beast hunter and Elspeth the Warrior princess. No new tiles or monsters, so it mixes freely with the Regent. The trained AI bot only knows the base game", toggle("sidhar")),
       row("The Lord of Karak", "Game version: once 5 arenas and cursed chambers are found, the weakest hero is possessed by the Lord of Karak and gets every other hero's skills. Needs the expansion", toggle("lord", !set.expansion)),
       row("See what's left", "Tap the tile pile or the bag to see which tiles, monsters and chests remain. Off: only how many", toggle("peek")),
     ),
@@ -1044,7 +1057,7 @@ function renderGame(st, main) {
   const mine = myTurn(st);
   if (!mine || !has(g, "cast_healing")) S.ui.healing = null;
   if (!mine || !has(g, S.ui.mode || "-")) S.ui.mode = null;
-  const dash = ["sprint", "blitz"];
+  const dash = ["sprint", "blitz", "reposition"];
   const legal = !mine
     ? []
     : S.ui.healing != null
@@ -1337,9 +1350,10 @@ function actionBar(st) {
       );
     }
     if (has(g, "cast_healing")) buttons.push(h("button", { class: `btn ${hinted("cast_healing")}`, onclick: () => castHealingDialog(st) }, itemIcon("healing", 22), " Portal of healing"));
-    for (const [type, label, help] of [["sprint", "🤸 Sprint", "Run up to 8 tiles over discovered tiles (this uses the whole turn). Click a glowing tile."], ["blitz", "⚡ Blitz", "Teleport to a monster and fight it (this uses the whole turn). Click a glowing monster."]]) {
+    for (const [type, label, help] of [["sprint", "🤸 Sprint", "Run up to 8 tiles over discovered tiles (this uses the whole turn). Click a glowing tile."], ["blitz", "⚡ Blitz", "Teleport to a monster and fight it (this uses the whole turn). Click a glowing monster."], ["reposition", "💨 Charge", "Charge past a monster onto the tile beyond it for 1 move and 1 HP. Click a glowing tile."]]) {
       if (has(g, type)) buttons.push(h("button", { class: `btn ${S.ui.mode === type ? "primary" : ""} ${hinted(type)}`, title: help, onclick: () => ((S.ui.mode = S.ui.mode === type ? null : type), render()) }, label));
     }
+    if (has(g, "protect")) buttons.push(h("button", { class: `btn ${hinted("protect")}`, title: "Jump to a wounded hero for 1 move and heal them 1 HP", onclick: (e) => protectPopover(st, e) }, "🛡 Protect"));
     if (has(g, "thorn")) buttons.push(h("button", { class: `btn ${hinted("thorn")}`, onclick: (e) => thornPopover(st, e) }, itemIcon("thorn", 22), " Thorn of darkness"));
     const healing = (here.kind === "fountain" || here.kind === "start") && (p.hp < g.max_hp || g.cursed === seat);
     const partial = legalOf(g, "end_turn").filter((a) => a.heal_to != null);
@@ -1349,6 +1363,22 @@ function actionBar(st) {
   const tools = [];
   if (st.settings.hints && mine) tools.push(h("button", { class: "btn small ghost", title: "Ask the Champion bot (H)", onclick: () => send({ type: "hint" }) }, "💡 Hint"));
   return h("div", { class: "action-bar" }, h("div", { class: "ab-top" }, h("span", { class: "ab-label" }, "Moves"), steps), h("div", { class: "ab-buttons" }, buttons), tools.length ? h("div", { class: "ab-tools" }, tools) : null);
+}
+
+function protectPopover(st, e) {
+  const g = st.game;
+  const targets = legalOf(g, "protect");
+  openPopover(
+    e.clientX,
+    e.clientY,
+    h(
+      "div",
+      {},
+      h("h4", {}, "Protector"),
+      h("p", { class: "why" }, "Jump to a wounded hero's tile (1 move) and heal them 1 HP."),
+      h("div", { class: "pay-list" }, targets.map((a) => h("button", { class: "btn", onclick: () => act(a) }, heroPortrait(g.players[a.seat].hero, st.seats[a.seat].color, 22), ` ${st.seats[a.seat].name} (${g.players[a.seat].hp}/${g.max_hp} HP)`))),
+    ),
+  );
 }
 
 function thornPopover(st, e) {
@@ -1455,12 +1485,14 @@ function statusText(st) {
   if (cur === seat && g.legal.length) {
     switch (g.phase) {
       case "turn":
-        if (S.ui.mode) return { mine: true, parts: [S.ui.mode === "sprint" ? "🤸 Click a glowing tile to sprint there" : "⚡ Click a glowing monster to blitz it"] };
+        if (S.ui.mode) return { mine: true, parts: [{ sprint: "🤸 Click a glowing tile to sprint there", blitz: "⚡ Click a glowing monster to blitz it", reposition: "💨 Click the glowing tile to charge to" }[S.ui.mode]] };
         return { mine: true, parts: [g.moves_left ? `Your turn: ${plural(g.moves_left, "move")} left. Click a glowing tile or use the arrow keys.` : "No moves left. Use this tile or end your turn"] };
       case "place":
         return { mine: true, parts: ["Turn the new tile so its passages lead where you want, then place it"] };
       case "choose_token":
         return { mine: true, parts: ["🔮 Foresight: choose which token to place in this room"] };
+      case "transform":
+        return { mine: true, parts: ["⚗️ Keep this token, or pay 1 HP to draw another"] };
       case "combat":
         return { mine: true, parts: [duel ? "⚔️ Duel! Roll the dice" : `⚔️ A ${S.monsters[g.combat.monster].name} blocks your way. Fight!`] };
       case "rolled":
@@ -1484,6 +1516,7 @@ function statusText(st) {
     turn: "explores the labyrinth…",
     place: "turns a new tile…",
     choose_token: "reads the fates…",
+    transform: "stirs a potion to change fate…",
     combat: duel ? "fights a duel in the arena…" : `faces the ${g.combat ? S.monsters[g.combat.monster].name : "monster"}…`,
     rolled: "is fighting…",
     loot: "sorts the loot…",
@@ -1523,6 +1556,7 @@ function renderPanel(st) {
   else if (S.ui.healing != null && mine && has(g, "cast_healing")) panel = healingPanel(st);
   else if (g.combat && g.phase !== "retreat") panel = combatPanel(st, mine);
   else if (g.phase === "choose_token") panel = tokenPanel(st, mine);
+  else if (g.phase === "transform") panel = transformPanel(st, mine);
   else if (g.phase === "loot") panel = lootPanel(st, mine);
   else if (g.phase === "curse") panel = cursePanel(st, mine);
   else if (S.ui.mode && mine) panel = dashPanel(st);
@@ -1674,6 +1708,7 @@ function combatPanel(st, mine) {
     }
     const btnRow = [];
     if (has(g, "reroll")) btnRow.push(h("button", { class: "btn", onclick: () => act({ type: "reroll" }) }, "🎲 Second swing"));
+    for (const a of legalOf(g, "reroll_die")) btnRow.push(h("button", { class: "btn", title: "Dual wielding: roll this die again and keep the new value", onclick: () => act(a) }, `🗡 Re-roll the ${c.dice[a.die]}`));
     btnRow.push(
       h(
         "button",
@@ -1717,8 +1752,8 @@ function dashPanel(st) {
   return h(
     "div",
     { class: "float-panel small" },
-    h("h3", {}, type === "sprint" ? "🤸 Sprint" : "⚡ Blitz attack"),
-    h("p", { class: "sub" }, type === "sprint" ? "Run up to 8 tiles over discovered tiles. Arenas and cursed chambers stop you. This uses the whole turn." : "Teleport to any monster and fight it. This uses the whole turn."),
+    h("h3", {}, { sprint: "🤸 Sprint", blitz: "⚡ Blitz attack", reposition: "💨 Tactical reposition" }[type]),
+    h("p", { class: "sub" }, { sprint: "Run up to 8 tiles over discovered tiles. Arenas and cursed chambers stop you. This uses the whole turn.", blitz: "Teleport to any monster and fight it. This uses the whole turn.", reposition: "Charge through the monster next to you onto a tile beside it, even an undiscovered one. Costs 1 move and 1 HP." }[type]),
     h("div", { class: "actions" }, h("button", { class: "btn ghost", onclick: () => ((S.ui.mode = null), render()) }, "Cancel")),
   );
 }
@@ -1783,6 +1818,30 @@ function tokenPanel(st, mine) {
         const m = S.monsters[tok];
         return h("button", { class: "offer-btn", onclick: () => act({ type: "choose_token", index: i }) }, token(tok, 70, m ? m.strength : null), h("span", {}, m ? m.name : "Locked chest"));
       }),
+    ),
+  );
+}
+
+function transformPanel(st, mine) {
+  const g = st.game;
+  const p = g.players[g.current];
+  if (!mine || !g.offer.length) return h("div", { class: "float-panel small" }, h("h3", {}, "⚗️ Transformation"), h("p", { class: "sub" }, `${seatName(st, g.current)} is deciding whether to draw again…`));
+  const tok = g.offer[0];
+  const m = S.monsters[tok];
+  const drop = p.hp <= 1;
+  return h(
+    "div",
+    { class: "float-panel small" },
+    h("h3", {}, "⚗️ Transformation"),
+    h("p", { class: "sub" }, "You drew this token. Keep it, or set it aside and draw another for 1 HP; set-aside tokens go back into the bag."),
+    h("div", { class: "offer" }, h("div", { class: "offer-btn static" }, token(tok, 70, m ? m.strength : null), h("span", {}, m ? m.name : "Locked chest"))),
+    h(
+      "div",
+      { class: "actions" },
+      h("button", { class: "btn primary", onclick: () => act({ type: "transform", redraw: false }) }, "Keep it"),
+      has(g, "transform") && legalOf(g, "transform").some((a) => a.redraw)
+        ? h("button", { class: "btn", title: drop ? "Your last HP: you fall unconscious and do not meet the token" : "", onclick: () => act({ type: "transform", redraw: true }) }, drop ? "⚗️ Draw another (last HP!)" : "⚗️ Draw another (−1 HP)")
+        : null,
     ),
   );
 }
@@ -1910,6 +1969,10 @@ function showHint(action) {
       steal: () => (action.slot ? "Take that" : "Take nothing"),
       thorn: () => `Thorn ${seatName(st, action.seat)}`,
       take_loot: () => "Take the loot",
+      protect: () => `Protect ${seatName(st, action.seat)}`,
+      reposition: () => "Charge past the monster",
+      reroll_die: () => `Roll the ${g.combat?.dice?.[action.die] ?? ""} again`,
+      transform: () => (action.redraw ? "Draw another token" : "Keep the token"),
     }[action.type]?.() || action.type;
   if (action.type === "strike") {
     S.ui.bolts = action.bolts;

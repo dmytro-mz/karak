@@ -22,6 +22,7 @@ from karak.game.model import (
     Hero,
     Kind,
     Pos,
+    Tile,
     has_exit,
     rotate,
     step,
@@ -77,6 +78,8 @@ class PlannerBot(Bot):
                 return self._place(view)
             case Phase.CHOOSE_TOKEN:
                 return self._choose_token(view)
+            case Phase.TRANSFORM:
+                return self._transform(view)
             case Phase.COMBAT:
                 return self._combat(view)
             case Phase.ROLLED:
@@ -102,7 +105,12 @@ class PlannerBot(Bot):
     def _skill(self, view: View, hero: Hero) -> bool:
         return view.has_skill(view.seat, hero)
 
-    def fight_chance(self, view: View, monster: str, first_move: bool = False) -> float:
+    @staticmethod
+    def _ambush(view: View, tile: Tile) -> bool:
+        """The monster was revealed on an earlier turn (the beast hunter's +1)."""
+        return tile.seen is None or tile.seen < view.turn
+
+    def fight_chance(self, view: View, monster: str, first_move: bool = False, ambush: bool = False) -> float:
         me = self._me(view)
         bonus = view.attack_power(view.seat) + me.spells.count("bolt") + 2 * me.spells.count("frost")
         bonus += berserk_bonus(me.hp, view.skills(view.seat))
@@ -110,12 +118,15 @@ class PlannerBot(Bot):
             bonus += 1
         if self._skill(view, Hero.WARLOCK) and me.hp > 1:
             bonus += 1
+        if self._skill(view, Hero.BEASTHUNTER) and ambush:
+            bonus += 1
         return win_chance(
             MONSTERS[monster].strength - bonus,
             steady=self._skill(view, Hero.SWORDSMAN),
             ties_win=self._skill(view, Hero.THIEF),
             reroll=self._skill(view, Hero.WARRIOR),
             bear=self._skill(view, Hero.RANGER),
+            dual=self._skill(view, Hero.PRINCESS),
         )
 
     def _ruby_wins(self, view: View) -> bool:
@@ -176,6 +187,8 @@ class PlannerBot(Bot):
         if monster == "mummy":
             gain += 0.8 if self.cfg.curse_leader else 0.2
         hurt = 3.0 if me.hp <= 1 else 1.2
+        if self._skill(view, Hero.ALCHEMIST):
+            hurt *= 0.4  # skin of steel: only a defeat by 3 or more costs him a life
         return chance * (gain + 1.0) - (1 - chance) * hurt
 
     # ------------------------------------------------------------------ phases
@@ -204,11 +217,24 @@ class PlannerBot(Bot):
 
         return max(view.legal, key=lambda a: score(view.offer[a.index]))  # type: ignore[union-attr]
 
+    def _transform(self, view: View) -> Action:
+        """Alchemist: swap a token he can't or won't fight for another, while he can afford the life."""
+        me = self._me(view)
+        token = view.offer[0]
+        keep = A.Transform(False)
+        if token == CHEST or A.Transform(True) not in view.legal:
+            return keep
+        first = view.moves_left == view.rules.moves - 1
+        chance = self.fight_chance(view, token, first)
+        if self._monster_value(view, token, chance) > 0 or me.hp <= 2:
+            return keep
+        return A.Transform(True)
+
     def _combat(self, view: View) -> Action:
         c = view.combat
         assert c is not None
         if A.Sneak() in view.legal:
-            chance = self.fight_chance(view, c.monster, c.first_move)
+            chance = self.fight_chance(view, c.monster, c.first_move, c.ambush)
             if self._monster_value(view, c.monster, chance) <= 0:
                 return A.Sneak()
         return A.Roll()
@@ -221,7 +247,11 @@ class PlannerBot(Bot):
         dragon = c.monster == "dragon"
         if c.versus is not None:
             if c.stage == 0:  # the challenger rolls first: nothing to beat yet, so only swing again on a poor roll
-                return A.Reroll() if A.Reroll() in view.legal and sum(c.dice) < 7 else A.Strike()
+                if A.Reroll() in view.legal and sum(c.dice) < 7:
+                    return A.Reroll()
+                if A.RerollDie(0) in view.legal and min(c.dice) <= 2:
+                    return A.RerollDie(c.dice.index(min(c.dice)))
+                return A.Strike()
             strength, ties = c.target, self._skill(view, Hero.THIEF) and not c.thief0
         else:
             strength, ties = MONSTERS[c.monster].strength, self._skill(view, Hero.THIEF)
@@ -241,6 +271,11 @@ class PlannerBot(Bot):
             return A.Strike()
         if A.Reroll() in view.legal and (need > 2 or need > best_gain):
             return A.Reroll()
+        dual = [a for a in view.legal if isinstance(a, A.RerollDie)]
+        if dual and need > 0:  # the princess swings one blade again: the weaker die, if it can be improved
+            low = min(range(2), key=lambda i: c.dice[i])
+            if c.dice[low] <= 2 or (c.dice[low] <= 3 and need > best_gain):
+                return A.RerollDie(low)
         winning = [a for a in strikes if gain(a) >= need and (not a.sacrifice or me.hp > 1 or dragon)]
         if winning:
             return min(winning, key=cost)
@@ -342,6 +377,9 @@ class PlannerBot(Bot):
         swap = self._swap(view)
         if swap is not None:
             return swap
+        hop = self._protect(view)
+        if hop is not None:
+            return hop
         goal = self._best_goal(view)
         dash = self._dash(view, goal)
         if dash is not None:
@@ -383,13 +421,14 @@ class PlannerBot(Bot):
         for a in view.legal:
             if isinstance(a, A.Blitz):
                 tile = view.tiles[a.at]
-                chance = self.fight_chance(view, tile.monster or "", first_move=False)
+                chance = self.fight_chance(view, tile.monster or "", False, self._ambush(view, tile))
                 value = self._monster_value(view, tile.monster or "", chance)
             elif isinstance(a, A.Sprint):
                 tile = view.tiles[a.to]
                 value = -10.0
                 if tile.monster:
-                    value = self._monster_value(view, tile.monster, self.fight_chance(view, tile.monster))
+                    chance = self.fight_chance(view, tile.monster, False, self._ambush(view, tile))
+                    value = self._monster_value(view, tile.monster, chance)
                 elif tile.token == CHEST and me.keys:
                     value = 7.0
                 elif tile.items:
@@ -453,6 +492,30 @@ class PlannerBot(Bot):
         assert best is not None
         return best[1] if best[0] > max(0.0, stay.score if stay else 0.0) + self.cfg.swap_margin else None
 
+    def _protect(self, view: View) -> Action | None:
+        """Beast hunter: hop to a hurt hero's tile when that is clearly a better place to be than anywhere this turn's
+        moves lead. The hero she heals gains a life, so a leader is a less attractive friend."""
+        hops = [a for a in view.legal if isinstance(a, A.Protect)]
+        if not hops or not self.cfg.swap:
+            return None
+        me = self._me(view)
+        stay = self._best_goal(view)
+        best: tuple[float, Action] | None = None
+        for a in hops:
+            other = view.players[a.seat]
+            tile = view.tiles[other.pos]
+            now = max((self._loot_value(view, i) for i in tile.items), default=0.0)
+            if tile.token == CHEST and me.keys:
+                now = max(now, 7.0)
+            goal = self._best_goal(view, start=other.pos)
+            score = (now if now > 0.5 else 0.0) + max(0.0, goal.score if goal else 0.0) / 1.3
+            score += 0.8 if other.hp <= 1 else 0.0  # a hero on the edge is worth saving
+            score -= 1.0 if other.points > me.points else 0.0
+            if best is None or score > best[0]:
+                best = (score, a)
+        assert best is not None
+        return best[1] if best[0] > max(0.0, stay.score if stay else 0.0) + self.cfg.swap_margin + 0.5 else None
+
     def _search(
         self, view: View, start: Pos | None = None
     ) -> tuple[dict[Pos, tuple[int, Action | None]], list[tuple[Pos, int, Action]]]:
@@ -505,7 +568,8 @@ class PlannerBot(Bot):
                 return value / (1 + 0.3 * (turns - 1)) - self.cfg.distance_cost * 0.25 * cost
 
             if tile.monster:
-                chance = self.fight_chance(view, tile.monster, first_move=cost == 1 and moves == view.rules.moves)
+                opening = cost == 1 and moves == view.rules.moves
+                chance = self.fight_chance(view, tile.monster, opening, self._ambush(view, tile))
                 value = self._monster_value(view, tile.monster, chance)
                 goals.append(_Goal(far(value), first, f"fight {tile.monster}", pos))
             elif tile.token == CHEST and me.keys:
