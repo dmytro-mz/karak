@@ -1131,7 +1131,6 @@ function renderPlayers(st) {
       const current = g.actor === seat;
       const badges = [];
       if (g.lord === seat) badges.push("👑 possessed");
-      if (s.bot) badges.push(botInfo(s.bot)?.label || "bot");
       if (s.autoplay) badges.push("autopilot");
       if (!s.bot && !s.connected) badges.push("offline");
       const takeOver =
@@ -1142,27 +1141,27 @@ function renderPlayers(st) {
           class: `pl-row ${current ? "current" : ""} ${g.cursed === seat ? "cursed" : ""} ${p.knocked_out ? "ko" : ""}`,
           "data-seat": seat,
           style: { "--hl": fill(s.color)[0], "--hd": fill(s.color)[1] },
-          title: "Click to see everything this hero carries",
+          title: "Click for gear and hero powers",
           onclick: (e) => {
             if (!e.target.closest("button")) playerPopover(st, seat, e);
           },
         },
+        heroPortrait(p.hero, s.color, 36),
         h(
           "div",
-          { class: "pl-top" },
-          heroPortrait(p.hero, s.color, 38),
-          h("div", { class: "pl-id" }, h("span", { class: "pl-name" }, s.name, seat === st.you.seat ? h("small", {}, " (you)") : null), h("span", { class: "pl-hero" }, p.hero === "lord" ? `Lord of Karak (was ${heroName(p.origin)})` : heroName(p.hero), badges.length ? ` · ${badges.join(" · ")}` : "")),
-          g.cursed === seat ? h("span", { title: "Cursed: no hero skills until healed at a fountain" }, art("misc-curse", 22)) : null,
-          h("span", { class: "pl-score", title: "Treasure points" }, pts(p.points)),
+          { class: "pl-id" },
+          h("span", { class: "pl-name" }, s.name, seat === st.you.seat ? h("small", {}, " (you)") : null),
+          h("span", { class: "pl-hero" }, p.hero === "lord" ? "Lord of Karak" : heroName(p.hero), badges.length ? ` · ${badges.join(" · ")}` : ""),
         ),
         h(
           "div",
           { class: "pl-stats" },
-          hpRow(p, g.max_hp, 14),
-          h("span", { class: "pl-gear" }, p.weapons.map((w) => itemIcon(w, 18)), p.spells.map((w) => itemIcon(w, 18)), p.keys.map((w) => itemIcon(w, 18)), p.power ? h("b", { class: "power", title: "Weapons add this to every fight" }, `⚔+${p.power}`) : null),
-          p.treasures.length ? h("span", { class: "pl-treasure" }, p.treasures.map((t) => itemIcon(t, 18))) : null,
+          hpRow(p, g.max_hp, 13),
+          h("b", { class: `pl-power ${p.power ? "" : "none"}`, title: "Weapon power: added to every fight" }, `⚔+${p.power || 0}`),
         ),
-        p.knocked_out ? h("div", { class: "ko-note" }, "💫 unconscious, skips the next turn") : null,
+        g.cursed === seat ? h("span", { class: "pl-flag", title: "Cursed: no hero skills until healed at a fountain" }, art("misc-curse", 20)) : null,
+        p.knocked_out ? h("span", { class: "pl-flag", title: "Unconscious: skips the next turn" }, "💫") : null,
+        h("span", { class: "pl-score", title: "Treasure points" }, pts(p.points)),
         takeOver,
       );
     }),
@@ -1189,16 +1188,32 @@ function playerPopover(st, seat, e) {
   const g = st.game;
   const p = g.players[seat];
   const s = st.seats[seat];
+  const cursed = g.cursed === seat;
+  const bot = s.bot ? botInfo(s.bot)?.label || "bot" : null;
   S.board?.focus(p.x, p.y);
+  const powers = h(
+    "div",
+    { class: "pop-powers" },
+    h("h5", {}, p.hero === "lord" ? "Powers of the Lord" : "Hero powers"),
+    cursed ? h("div", { class: "why" }, "Cursed: powers are off until healed at a fountain.") : null,
+    skillsOf(g, p).map((sk) => h("div", { class: `skill ${cursed ? "off" : ""}` }, h("b", {}, sk.name), h("span", {}, sk.text))),
+  );
+  const row = e.currentTarget?.getBoundingClientRect?.();
   openPopover(
     e.clientX,
     e.clientY,
     h(
       "div",
-      {},
-      h("div", { class: "pop-row" }, heroPortrait(p.hero, s.color, 40), h("div", {}, h("h4", {}, s.name), h("div", { class: "loot-line" }, heroName(p.hero), g.cursed === seat ? " · cursed" : "", p.knocked_out ? " · unconscious" : ""))),
-      heroAssets(g, seat),
+      { class: "pop-split" },
+      h(
+        "div",
+        { class: "pop-main" },
+        h("div", { class: "pop-row" }, heroPortrait(p.hero, s.color, 40), h("div", {}, h("h4", {}, s.name), h("div", { class: "loot-line" }, p.hero === "lord" ? `Lord of Karak (was ${heroName(p.origin)})` : heroName(p.hero), bot ? ` · ${bot}` : "", cursed ? " · cursed" : "", p.knocked_out ? " · unconscious" : ""))),
+        heroAssets(g, seat),
+      ),
+      powers,
     ),
+    row,
   );
 }
 
@@ -1841,15 +1856,23 @@ function closePopover() {
   popoverEl = null;
 }
 
-function openPopover(x, y, content) {
+function openPopover(x, y, content, anchor = null) {
   closePopover();
   popoverEl = h("div", { class: "popover" }, h("button", { class: "icon-btn close", onclick: closePopover, title: "Close" }, "✕"), content);
   document.body.append(popoverEl);
   const r = popoverEl.getBoundingClientRect();
-  const left = Math.min(innerWidth - r.width - 8, Math.max(8, x - r.width / 2));
-  const top = y - r.height - 16 > 60 ? y - r.height - 16 : Math.min(innerHeight - r.height - 8, y + 18);
-  popoverEl.style.left = `${left}px`;
-  popoverEl.style.top = `${top}px`;
+  const m = 8;
+  let left, top;
+  if (anchor) {
+    // Beside the anchor (to its left when there is room, else its right), always fully inside the window.
+    left = anchor.left - r.width - 10 >= m ? anchor.left - r.width - 10 : anchor.right + 10;
+    top = anchor.top + anchor.height / 2 - r.height / 2;
+  } else {
+    left = x - r.width / 2;
+    top = y - r.height - 16 > 60 ? y - r.height - 16 : y + 18;
+  }
+  popoverEl.style.left = `${Math.max(m, Math.min(innerWidth - r.width - m, left))}px`;
+  popoverEl.style.top = `${Math.max(m, Math.min(innerHeight - r.height - m, top))}px`;
 }
 
 document.addEventListener("pointerdown", (e) => {
