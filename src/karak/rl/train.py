@@ -28,7 +28,7 @@ import torch.nn.functional as F
 import yaml
 from rich.console import Console
 
-from karak.game.model import Hero
+from karak.game.model import BASE_HEROES
 from karak.nn.encoding import N_ACTIONS, N_GLOBAL, N_SPATIAL, S
 from karak.rl.config import TrainConfig
 from karak.rl.env import LEARNER, EnvConfig, EpisodeSpec
@@ -148,7 +148,7 @@ def eval_specs(sizes: list[int], games: int, opponent: str, seed: int) -> list[E
         for g in range(games):
             controllers = [opponent] * n
             controllers[g % n] = LEARNER
-            specs.append(EpisodeSpec(rng.randrange(2**62), tuple(rng.sample(list(Hero), n)), tuple(controllers)))
+            specs.append(EpisodeSpec(rng.randrange(2**62), tuple(rng.sample(list(BASE_HEROES), n)), tuple(controllers)))
     return specs
 
 

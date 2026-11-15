@@ -6,7 +6,7 @@ import pytest
 from karak.bots import make_bot
 from karak.game import actions as A
 from karak.game.engine import Game, Phase
-from karak.game.model import Hero, Pos
+from karak.game.model import BASE_HEROES, Hero, Pos
 from karak.nn import encoding as E
 from karak.nn.forward import Policy
 from karak.rl.config import load_config
@@ -21,7 +21,7 @@ from karak.rl.train import Storage, _minibatches  # noqa: E402
 def _champion_views(games: int = 3, seed: int = 0):
     for g in range(games):
         n = 2 + (seed + g) % 4
-        heroes = random.Random(seed + g).sample(list(Hero), n)
+        heroes = random.Random(seed + g).sample(list(BASE_HEROES), n)
         bots = [make_bot("champion", 10 * g + i) for i in range(n)]
         game = Game(heroes, seed=seed + g)
         while game.phase != Phase.GAME_OVER:

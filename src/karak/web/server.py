@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from karak.game.model import ITEMS, MONSTERS
+from karak.game.model import ITEMS, MONSTERS, REGENT_ITEMS, REGENT_MONSTERS
 from karak.web.room import Room, RoomError, bots_public, heroes_public
 
 log = logging.getLogger(__name__)
@@ -122,7 +122,14 @@ def catalogue() -> dict[str, Any]:
     return {
         "heroes": heroes_public(),
         "monsters": [
-            {"key": m.key, "name": m.name, "strength": m.strength, "loot": m.loot, "count": m.count}
+            {
+                "key": m.key,
+                "name": m.name,
+                "strength": m.strength,
+                "loot": m.loot,
+                "count": m.count,
+                "expansion": m.key in REGENT_MONSTERS,
+            }
             for m in MONSTERS.values()
         ],
         "items": [
@@ -132,6 +139,7 @@ def catalogue() -> dict[str, Any]:
                 "slot": i.slot.value if i.slot else None,
                 "power": i.power,
                 "points": i.points,
+                "expansion": i.key in REGENT_ITEMS,
             }
             for i in ITEMS.values()
         ],

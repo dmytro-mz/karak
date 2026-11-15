@@ -8,7 +8,7 @@ import random
 from concurrent.futures import ProcessPoolExecutor
 
 from karak.bots import REGISTRY, PlannerBot, PlannerConfig, make_bot
-from karak.game.model import Hero
+from karak.game.model import BASE_HEROES
 from karak.runner import play_game
 
 VARIANTS = {
@@ -26,7 +26,7 @@ def one(args: tuple[str, str, int]) -> tuple[str, float, int]:
     bots = [
         PlannerBot(seed * 7 + i, VARIANTS[name]) if k == "x" else make_bot(k, seed * 7 + i) for i, k in enumerate(seats)
     ]
-    heroes = random.Random(seed).sample(list(Hero), 3)
+    heroes = random.Random(seed).sample(list(BASE_HEROES), 3)
     g = play_game(bots, heroes, seed=seed)
     assert g.result is not None
     x = seats.index("x")

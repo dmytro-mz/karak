@@ -11,6 +11,11 @@ treasure chests and slay the Dragon; bots can fill empty seats.
 - **The full game**: 79 labyrinth tiles (corridors, rooms, healing fountains, teleport gates), 53 tokens
   (monsters and locked chests), two-dice combat, weapons, magic bolts, portals of healing, keys, the Curse,
   falling unconscious, and the Dragon with its ruby that ends the game.
+- **Karak: Regent (optional expansion)**: switch it on in the table rules to add battle arenas (hero-vs-hero
+  duels), cursed chambers, 8 more chambers, four heroes (Barbarian, Battle mage, Acrobat, Ranger), giant bats and
+  ice mages, and two spells (thorn of darkness, frost fist). Tick **The Lord of Karak** as well to play that game
+  version: once five arenas and cursed chambers are found, the weakest hero is possessed and gains every other
+  hero's skills. The trained AI bot only knows the base game; the other bots handle the expansion.
 - **Six heroes, each with two skills**: Warrior, Thief, Wizard, Warlock, Swordsman and Oracle.
 - **A dungeon that looks the part**: stone tiles with torch-lit rooms, round monster tokens with strength
   shields, a parchment hero sheet with life hearts and inventory slots, and rolling dice.

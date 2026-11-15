@@ -25,13 +25,23 @@ TOKEN = "d" * 32
 PORT = 8765
 
 
-def prepare(stage: str = "play", turns: int = 30, bots: int = 3, seed: int = 3, delay_scale: float = 0.0) -> Room:
+def prepare(
+    stage: str = "play",
+    turns: int = 30,
+    bots: int = 3,
+    seed: int = 3,
+    delay_scale: float = 0.0,
+    regent: bool = False,
+    hero: str = "warrior",
+) -> Room:
     """A room with one human ("Dima", token TOKEN) and bots, fast-forwarded to `stage`."""
     room = Room("DEMO", delay_scale=delay_scale, seed=seed)
     me = room.join(TOKEN, "Dima")
     for key in ["champion", "adventurer", "squire", "champion"][:bots]:
         room.handle(me.id, {"type": "add_bot", "bot": key})
-    room.handle(me.id, {"type": "pick_hero", "hero": "warrior"})
+    if regent:
+        room.handle(me.id, {"type": "settings", "changes": {"expansion": True, "lord": True}})
+    room.handle(me.id, {"type": "pick_hero", "hero": hero})
     if stage == "lobby":
         return room
     room.handle(me.id, {"type": "start"})
@@ -74,7 +84,7 @@ async def serving(app: FastAPI, room: Room, port: int = PORT) -> AsyncIterator[s
 
 
 async def run(args: argparse.Namespace) -> None:
-    room = prepare(args.stage, args.turns, args.bots, args.seed)
+    room = prepare(args.stage, args.turns, args.bots, args.seed, regent=args.regent, hero=args.hero)
     app = create_app()
     async with serving(app, room, args.port) as url:
         w, h = args.size.split("x")
@@ -99,6 +109,8 @@ def main() -> None:
     ap.add_argument("--serve", action="store_true", help="keep serving after the screenshot")
     ap.add_argument("--seed", type=int, default=3)
     ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--regent", action="store_true", help="Karak: Regent expansion and the Lord of Karak")
+    ap.add_argument("--hero", default="warrior")
     asyncio.run(run(ap.parse_args()))
 
 

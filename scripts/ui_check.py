@@ -27,6 +27,7 @@ class Checker:
         self.page = page
         self.shots = shots
         self.rng = random.Random(seed)
+        self.regent = False
         self.errors: list[str] = []
         self.taken: set[str] = set()
         self.clicks: dict[str, int] = {}
@@ -82,10 +83,14 @@ class Checker:
             await self.click_box(f"{panel}.place-panel .btn.primary")
             self.clicks["place"] = self.clicks.get("place", 0) + 1
             return True
+        if await self.visible(".popover .pay-list .btn"):
+            await self.press("popover", ".popover .pay-list .btn", "popover")
+            return True
         for name, selector, shot in [
             ("strike", f"{panel} .btn.strike", "strike"),
             ("roll", f"{panel} .btn.primary.big", "combat"),
             ("token", f"{panel} .offer-btn", "foresight"),
+            ("challenge", f"{panel} .curse-card", "challenge"),
             ("panel", f"{panel} .actions .btn", "panel"),
         ]:
             if await self.press(name, selector, shot):
@@ -93,6 +98,12 @@ class Checker:
         if not await self.visible(".status.mine"):
             return False
         if await self.press("chest", ".ab-buttons .btn.primary:not(.end-btn)", "chest"):
+            return True
+        if (
+            self.regent
+            and self.rng.random() < 0.25
+            and await self.press("ability", ".ab-buttons .btn:not(.end-btn)", "ability")
+        ):
             return True
         spots = self.page.locator("g.spot")
         n = await spots.count()
@@ -107,7 +118,7 @@ class Checker:
 async def run(args: argparse.Namespace) -> int:
     shots = Path(args.shots)
     shots.mkdir(parents=True, exist_ok=True)
-    room = prepare("lobby", bots=args.bots, seed=args.seed, delay_scale=0.02)
+    room = prepare("lobby", bots=args.bots, seed=args.seed, delay_scale=0.02, regent=args.regent, hero=args.hero)
     room.settings.hints = True
     host = next(iter(room.members))
     room.handle(host, {"type": "start"})
@@ -116,6 +127,7 @@ async def run(args: argparse.Namespace) -> int:
         browser = await pw.chromium.launch(executable_path=CHROME, headless=not args.headed)
         page = await browser.new_page(viewport={"width": 1440, "height": 900}, reduced_motion="reduce")
         check = Checker(page, shots, args.seed)
+        check.regent = args.regent
         await page.goto(url)
         await page.wait_for_selector(".board-svg")
         await check.smoke_dialogs()
@@ -147,6 +159,8 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=300)
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--port", type=int, default=8767)
+    ap.add_argument("--regent", action="store_true")
+    ap.add_argument("--hero", default="warrior")
     ap.add_argument("--shots", default="shots/ui")
     raise SystemExit(asyncio.run(run(ap.parse_args())))
 

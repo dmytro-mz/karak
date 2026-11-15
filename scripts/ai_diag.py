@@ -9,7 +9,7 @@ from collections import Counter
 
 from karak.bots import make_bot
 from karak.game.engine import Game, Phase
-from karak.game.model import Hero
+from karak.game.model import BASE_HEROES
 
 ap = argparse.ArgumentParser()
 ap.add_argument("policy")
@@ -25,7 +25,7 @@ turns = []
 points = []
 for seed in range(args.n):
     n = args.players
-    heroes = random.Random(seed).sample(list(Hero), n)
+    heroes = random.Random(seed).sample(list(BASE_HEROES), n)
     ai_seat = seed % n
     bots = [make_bot("champion", seed * 10 + i) for i in range(n)]
     ai = make_bot(f"ai:{args.policy}", seed)

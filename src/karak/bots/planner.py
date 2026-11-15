@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from karak.bots.base import Bot
 from karak.game import actions as A
 from karak.game.actions import Action
-from karak.game.engine import Phase, View
+from karak.game.engine import Phase, View, berserk_bonus
 from karak.game.model import (
     CHEST,
     DIRS,
@@ -87,6 +87,12 @@ class PlannerBot(Bot):
                 return self._curse(view)
             case Phase.REINCARNATE:
                 return self.rng.choice(legal)
+            case Phase.RETREAT:
+                return self._retreat(view)
+            case Phase.CHALLENGE:
+                return self._challenge(view)
+            case Phase.STEAL:
+                return self._steal(view)
         return self._turn(view)
 
     # ------------------------------------------------------------------ helpers
@@ -98,7 +104,8 @@ class PlannerBot(Bot):
 
     def fight_chance(self, view: View, monster: str, first_move: bool = False) -> float:
         me = self._me(view)
-        bonus = me.power + me.spells.count("bolt")
+        bonus = view.attack_power(view.seat) + me.spells.count("bolt") + 2 * me.spells.count("frost")
+        bonus += berserk_bonus(me.hp, view.skills(view.seat))
         if self._skill(view, Hero.ORACLE) and first_move:
             bonus += 1
         if self._skill(view, Hero.WARLOCK) and me.hp > 1:
@@ -108,6 +115,7 @@ class PlannerBot(Bot):
             steady=self._skill(view, Hero.SWORDSMAN),
             ties_win=self._skill(view, Hero.THIEF),
             reroll=self._skill(view, Hero.WARRIOR),
+            bear=self._skill(view, Hero.RANGER),
         )
 
     def _ruby_wins(self, view: View) -> bool:
@@ -131,7 +139,7 @@ class PlannerBot(Bot):
         if d.slot.value == "spell":
             if len(me.spells) >= SLOTS[d.slot]:
                 return 0.3
-            return 2.0 if item == "bolt" else 1.4
+            return {"bolt": 2.0, "frost": 1.9, "thorn": 1.3}.get(item, 1.4)
         if me.keys:
             return 0.2
         chests = sum(1 for t in view.tiles.values() if t.token == CHEST) + view.bag[CHEST]
@@ -209,41 +217,95 @@ class PlannerBot(Bot):
         c = view.combat
         assert c is not None
         me = self._me(view)
-        strength = MONSTERS[c.monster].strength
-        foresight = 1 if self._skill(view, Hero.ORACLE) and c.first_move else 0
-        wizard = self._skill(view, Hero.WIZARD)
-        bolts = 0 if wizard else me.spells.count("bolt")
-        total = sum(c.dice) + me.power + foresight + (me.spells.count("bolt") if wizard else 0)
-        ties = self._skill(view, Hero.THIEF)
+        seat = view.seat
+        dragon = c.monster == "dragon"
+        if c.versus is not None:
+            if c.stage == 0:  # the challenger rolls first: nothing to beat yet, so only swing again on a poor roll
+                return A.Reroll() if A.Reroll() in view.legal and sum(c.dice) < 7 else A.Strike()
+            strength, ties = c.target, self._skill(view, Hero.THIEF) and not c.thief0
+        else:
+            strength, ties = MONSTERS[c.monster].strength, self._skill(view, Hero.THIEF)
+        total = sum(c.dice) + view.combat_bonus(seat)
         need = strength - total + (0 if ties else 1)  # extra points still missing for a win
-        can_sacrifice = A.Strike(0, True) in view.legal and (me.hp > 1 or c.monster == "dragon")
+        strikes = [a for a in view.legal if isinstance(a, A.Strike)]
+
+        def gain(a: A.Strike) -> int:
+            return a.bolts + 2 * a.fists + (1 if a.sacrifice else 0)
+
+        def cost(a: A.Strike) -> float:
+            sacrifice = 0.0 if not a.sacrifice else (0.5 if dragon else 1.5 if me.hp > 1 else 9.0)
+            return a.bolts + 1.2 * a.fists + sacrifice
+
+        best_gain = max((gain(a) for a in strikes), default=0)
         if need <= 0:
-            return A.Strike(0, False)
-        if A.Reroll() in view.legal and (need > 2 or need > bolts + (1 if can_sacrifice else 0)):
+            return A.Strike()
+        if A.Reroll() in view.legal and (need > 2 or need > best_gain):
             return A.Reroll()
-        if need <= bolts:
-            return A.Strike(need, False)
-        if can_sacrifice and need <= bolts + 1:
-            return A.Strike(bolts, True)
-        if me.hp <= 1 and bolts and need - 1 <= bolts and not ties:
-            return A.Strike(need - 1, False)  # a tie at least keeps the last HP
-        return A.Strike(0, False)
+        winning = [a for a in strikes if gain(a) >= need and (not a.sacrifice or me.hp > 1 or dragon)]
+        if winning:
+            return min(winning, key=cost)
+        if me.hp <= 1 and not ties and c.versus is None:  # a tie at least keeps the last HP
+            tying = [a for a in strikes if gain(a) >= need - 1 and not a.sacrifice]
+            if tying:
+                return min(tying, key=cost)
+        return A.Strike()
+
+    def _retreat(self, view: View) -> Action:
+        def score(a: A.Retreat) -> float:
+            tile = view.tiles[step(view.combat.at, a.dir)]  # type: ignore[union-attr]
+            return (5.0 if tile.kind in HEALING else 0.0) - (3.0 if tile.monster else 0.0) + self.rng.random()
+
+        return max((a for a in view.legal if isinstance(a, A.Retreat)), key=score)
+
+    def _challenge(self, view: View) -> Action:
+        def prey(a: A.Challenge) -> float:
+            q = view.players[a.seat]
+            return q.points + len(q.spells) + len(q.keys) - 1.5 * view.attack_power(a.seat) + 0.2 * (5 - q.hp)
+
+        return max((a for a in view.legal if isinstance(a, A.Challenge)), key=prey)
+
+    def _steal(self, view: View) -> Action:
+        assert view.spoils is not None
+        loser = view.players[view.spoils[1]]
+        me = self._me(view)
+        best: tuple[float, Action] = (0.0, A.Steal(None))
+        for a in view.legal:
+            if not isinstance(a, A.Steal) or a.slot is None:
+                continue
+            item = {"weapon": loser.weapons, "spell": loser.spells, "key": loser.keys, "treasure": loser.treasures}[
+                a.slot
+            ][a.index]
+            value = self._loot_value(view, item) if item != "ruby" else 14.0
+            if a.drop is not None:
+                dest = view.slot_for(view.seat, item)
+                value -= (
+                    self._loot_value(view, me.slot(dest)[a.drop])
+                    if dest.value != "weapon"
+                    else (2.4 * ITEMS[me.slot(dest)[a.drop]].power)
+                )
+                value -= 0.5
+            if value > best[0]:
+                best = (value, a)
+        return best[1]
 
     def _loot(self, view: View) -> Action:
         item = view.loot_item
         assert item is not None
         me = self._me(view)
-        slot = ITEMS[item].slot
-        assert slot is not None
+        slot = view.slot_for(view.seat, item)
         owned = me.slot(slot)
+        if A.TakeLoot() in view.legal:  # the barbarian may take it (ending the turn) or leave it and fight on
+            return A.TakeLoot() if self._loot_value(view, item) > 0.5 else A.Loot(None)
         if not self.cfg.smart_loot:
             return self.rng.choice(view.legal)
+        choice: Action = A.Loot(None)
         if slot.value == "weapon":
             weakest = min(range(len(owned)), key=lambda i: ITEMS[owned[i]].power)
-            return A.Loot(weakest) if ITEMS[item].power > ITEMS[owned[weakest]].power else A.Loot(None)
-        if slot.value == "spell" and item == "bolt" and "healing" in owned and owned.count("healing") > 1:
-            return A.Loot(owned.index("healing"))
-        return A.Loot(None)
+            if ITEMS[item].power > ITEMS[owned[weakest]].power:
+                choice = A.Loot(weakest)
+        elif slot.value == "spell" and "healing" in owned and owned.count("healing") > 1 and item != "healing":
+            choice = A.Loot(owned.index("healing"))
+        return choice if choice in view.legal else A.Loot(None)
 
     def _curse(self, view: View) -> Action:
         others = [a for a in view.legal if isinstance(a, A.Curse) and a.seat is not None]
@@ -274,10 +336,20 @@ class PlannerBot(Bot):
         heal = self._self_heal(view)
         if heal is not None:
             return heal
+        thorn = self._thorn(view)
+        if thorn is not None:
+            return thorn
         swap = self._swap(view)
         if swap is not None:
             return swap
         goal = self._best_goal(view)
+        dash = self._dash(view, goal)
+        if dash is not None:
+            return dash
+        if goal is not None and isinstance(goal.first, A.Explore) and view.moves_left >= 2:
+            peek = A.Eavesdrop(goal.first.dir)  # the ranger looks before she leaps
+            if peek in legal:
+                return peek
         if A.EndTurn() not in legal:  # standing on a monster the thief slipped past: must move on
             if goal is not None:
                 self.goal = goal.pos
@@ -290,6 +362,48 @@ class PlannerBot(Bot):
         self.goal = goal.pos
         return goal.first
 
+    def _thorn(self, view: View) -> Action | None:
+        """Prick the leader (or whoever a single life would knock out) with a thorn of darkness."""
+        thorns = [a for a in view.legal if isinstance(a, A.Thorn)]
+        if not thorns:
+            return None
+        if not self.cfg.curse_leader:
+            return self.rng.choice(thorns)
+
+        def threat(a: A.Thorn) -> tuple[int, int]:
+            q = view.players[a.seat]
+            return (q.points + (4 if q.hp == 1 else 0), -q.hp)
+
+        return max(thorns, key=threat)
+
+    def _dash(self, view: View, stay: _Goal | None) -> Action | None:
+        """Acrobat sprint / battle mage blitz: a whole turn spent to land right on something worth having."""
+        me = self._me(view)
+        best: tuple[float, Action] | None = None
+        for a in view.legal:
+            if isinstance(a, A.Blitz):
+                tile = view.tiles[a.at]
+                chance = self.fight_chance(view, tile.monster or "", first_move=False)
+                value = self._monster_value(view, tile.monster or "", chance)
+            elif isinstance(a, A.Sprint):
+                tile = view.tiles[a.to]
+                value = -10.0
+                if tile.monster:
+                    value = self._monster_value(view, tile.monster, self.fight_chance(view, tile.monster))
+                elif tile.token == CHEST and me.keys:
+                    value = 7.0
+                elif tile.items:
+                    value = max(self._loot_value(view, i) for i in tile.items)
+                elif tile.kind in HEALING and (me.hp <= self.cfg.heal_at or view.cursed == view.seat):
+                    value = 5.0 + (view.rules.max_hp - me.hp)
+            else:
+                continue
+            if best is None or value > best[0]:
+                best = (value, a)
+        if best is None:
+            return None
+        return best[1] if best[0] > max(0.0, stay.score if stay else 0.0) + self.cfg.swap_margin + 1.0 else None
+
     def _best_pickup(self, view: View) -> Action | None:
         me = self._me(view)
         here = view.tiles[me.pos]
@@ -298,8 +412,7 @@ class PlannerBot(Bot):
             if not isinstance(a, A.Pickup):
                 continue
             item = here.items[a.index]
-            slot = ITEMS[item].slot
-            assert slot is not None
+            slot = view.slot_for(view.seat, item)
             owned = me.slot(slot)
             if a.drop is None:
                 value = self._loot_value(view, item)

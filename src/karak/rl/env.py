@@ -25,7 +25,7 @@ import numpy as np
 from karak.bots import Bot, make_bot
 from karak.game.actions import Action
 from karak.game.engine import Game, Phase, RulesConfig
-from karak.game.model import Hero
+from karak.game.model import BASE_HEROES, Hero
 from karak.nn.encoding import encode_into, label_index
 
 LEARNER = "learner"
@@ -126,7 +126,7 @@ class KarakEnv:
         else:
             sizes = list(self.cfg.table_sizes)
             n = self.rng.choices(sizes, [self.cfg.table_sizes[s] for s in sizes])[0]
-            heroes = self.rng.sample(list(Hero), n)
+            heroes = self.rng.sample(list(BASE_HEROES), n)
             controllers = [self._draw_opponent() for _ in range(n)]
             controllers[self.rng.randrange(n)] = LEARNER
             seed = self.rng.randrange(2**62)

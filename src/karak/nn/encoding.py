@@ -28,10 +28,12 @@ from karak.game import actions as A
 from karak.game.actions import Action
 from karak.game.engine import Phase, View
 from karak.game.model import (
+    BASE_HEROES,
     CHEST,
     DIRS,
     HEALING,
     MONSTERS,
+    REGENT_MONSTERS,
     Hero,
     Kind,
     Pos,
@@ -47,13 +49,13 @@ VERSION = 2
 S = 24
 CELLS = S * S
 MAX_SEATS = 5
-MONSTER_KEYS = tuple(MONSTERS)
+MONSTER_KEYS = tuple(k for k in MONSTERS if k not in REGENT_MONSTERS)
 TOKEN_KEYS = (*MONSTER_KEYS, CHEST)
 TOKEN_TOTAL = Counter(bag())
 GEAR = ("dagger", "sword", "axe", "bolt", "healing", "key")
 GEAR_INDEX = {g: i for i, g in enumerate(GEAR)}
 KINDS = (Kind.START, Kind.CORRIDOR, Kind.ROOM, Kind.FOUNTAIN, Kind.PORTAL)
-HEROES = tuple(Hero)
+HEROES = BASE_HEROES
 PHASES = (
     Phase.TURN,
     Phase.PLACE,

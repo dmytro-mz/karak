@@ -5,7 +5,21 @@ import pytest
 from karak.bots import make_bot
 from karak.game import actions as A
 from karak.game.engine import START, Game, IllegalMove, Phase
-from karak.game.model import CHEST, CORNER, CROSS, MONSTERS, STRAIGHT, Hero, Kind, Pos, Tile, bag, tile_pile
+from karak.game.model import (
+    BASE_HEROES,
+    CHEST,
+    CORNER,
+    CROSS,
+    MONSTERS,
+    REGENT_MONSTERS,
+    STRAIGHT,
+    Hero,
+    Kind,
+    Pos,
+    Tile,
+    bag,
+    tile_pile,
+)
 from karak.runner import play_game
 
 
@@ -46,7 +60,7 @@ def test_box_contents() -> None:
     assert sorted(mask for kind, mask in pile if kind == Kind.FOUNTAIN) == [CORNER] * 2
     tokens = bag()
     assert len(tokens) == 53 and tokens.count(CHEST) == 10 and tokens.count("dragon") == 1
-    assert sum(m.count for m in MONSTERS.values()) == 43
+    assert sum(m.count for k, m in MONSTERS.items() if k not in REGENT_MONSTERS) == 43
     game = _game()
     assert game.tiles[START].kind == Kind.START
     assert all(p.pos == START and p.hp == 5 for p in game.players)
@@ -374,7 +388,7 @@ def _conserved(game: Game) -> None:
 @pytest.mark.parametrize("seed", range(12))
 def test_random_games_respect_the_invariants(seed: int) -> None:
     rng = random.Random(seed)
-    heroes = rng.sample(list(Hero), rng.randint(2, 5))
+    heroes = rng.sample(list(BASE_HEROES), rng.randint(2, 5))
     game = Game(heroes, seed=seed)
     steps = 0
     while game.phase != Phase.GAME_OVER and steps < 4000:
@@ -414,7 +428,7 @@ def test_champion_leader_goes_for_the_dragon_before_a_rival_takes_it() -> None:
 @pytest.mark.parametrize("bot", ["squire", "adventurer", "champion"])
 def test_bot_games_finish(bot: str) -> None:
     for seed in range(4):
-        heroes = random.Random(seed).sample(list(Hero), 3)
+        heroes = random.Random(seed).sample(list(BASE_HEROES), 3)
         game = play_game([make_bot(bot, seed * 3 + i) for i in range(3)], heroes, seed=seed)
         assert game.result is not None
         _conserved(game)

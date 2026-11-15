@@ -17,6 +17,7 @@ class BotType:
     stars: int
     description: str
     make: Callable[[int | None], Bot]
+    expansion: bool = True  # can it play with Karak: Regent? (the trained networks only know the base game)
 
 
 REGISTRY: dict[str, BotType] = {
@@ -74,6 +75,7 @@ for _path in sorted(MODELS.glob("*.npz")):
         "A neural network that learned by imitating the Champion, then by playing tens of thousands of games "
         "against it.",
         _neural(_path),
+        expansion=False,
     )
 
 

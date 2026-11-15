@@ -64,6 +64,7 @@ class Strike:
 
     bolts: int = 0
     sacrifice: bool = False
+    fists: int = 0  # Regent: frost fists cast (+2 each)
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,64 @@ class CastHealing:
 
 @dataclass(frozen=True)
 class EndTurn:
-    pass
+    heal_to: int | None = None  # Regent barbarian: how many HP to have after healing at a fountain (None: full)
+
+
+@dataclass(frozen=True)
+class Eavesdrop:
+    """Regent ranger: explore the neighbouring tile through an open exit without stepping onto it (1 move)."""
+
+    dir: int
+
+
+@dataclass(frozen=True)
+class Sprint:
+    """Regent acrobat: run to a discovered tile up to 8 steps away instead of making the normal moves."""
+
+    to: Pos
+
+
+@dataclass(frozen=True)
+class Blitz:
+    """Regent battle mage: teleport to a monster's tile and fight it, using all the moves."""
+
+    at: Pos
+
+
+@dataclass(frozen=True)
+class Retreat:
+    """Regent battle mage: after a tie or a loss, the neighbouring tile (direction) to fall back to."""
+
+    dir: int
+
+
+@dataclass(frozen=True)
+class Challenge:
+    """Regent arena: the hero to summon for a duel."""
+
+    seat: int
+
+
+@dataclass(frozen=True)
+class Steal:
+    """Regent arena: the winner takes one thing from the loser: slot ('weapon'|'spell'|'key'|'treasure') and index,
+    `drop` = which of the winner's own items of that slot to leave on the floor when it is full. slot None: nothing."""
+
+    slot: str | None
+    index: int = 0
+    drop: int | None = None
+
+
+@dataclass(frozen=True)
+class Thorn:
+    """Regent thorn of darkness: take 1 life from another hero (free, own turn)."""
+
+    seat: int
+
+
+@dataclass(frozen=True)
+class TakeLoot:
+    """Regent barbarian: take the loot of a beaten monster (leaving it, `Loot(None)`, keeps his turn going)."""
 
 
 Action = (
@@ -128,6 +186,14 @@ Action = (
     | OpenChest
     | CastHealing
     | EndTurn
+    | Eavesdrop
+    | Sprint
+    | Blitz
+    | Retreat
+    | Challenge
+    | Steal
+    | Thorn
+    | TakeLoot
 )
 
 
@@ -175,7 +241,7 @@ def from_json(data: object) -> Action:
             sacrifice = data.get("sacrifice", False)
             if not isinstance(sacrifice, bool):
                 raise BadAction("sacrifice must be true or false")
-            return Strike(_int(data.get("bolts", 0), "bolts"), sacrifice)
+            return Strike(_int(data.get("bolts", 0), "bolts"), sacrifice, _int(data.get("fists", 0), "fists"))
         case "sneak":
             return Sneak()
         case "loot":
@@ -191,7 +257,26 @@ def from_json(data: object) -> Action:
         case "cast_healing":
             return CastHealing(_int(data.get("seat"), "seat"), _pos(data.get("at"), "at"))
         case "end_turn":
-            return EndTurn()
+            return EndTurn(_opt_int(data.get("heal_to"), "heal_to"))
+        case "eavesdrop":
+            return Eavesdrop(_int(data.get("dir"), "dir"))
+        case "sprint":
+            return Sprint(_pos(data.get("to"), "to"))
+        case "blitz":
+            return Blitz(_pos(data.get("at"), "at"))
+        case "retreat":
+            return Retreat(_int(data.get("dir"), "dir"))
+        case "challenge":
+            return Challenge(_int(data.get("seat"), "seat"))
+        case "steal":
+            slot = data.get("slot")
+            if slot is not None and not isinstance(slot, str):
+                raise BadAction("slot must be text")
+            return Steal(slot, _int(data.get("index", 0), "index"), _opt_int(data.get("drop"), "drop"))
+        case "thorn":
+            return Thorn(_int(data.get("seat"), "seat"))
+        case "take_loot":
+            return TakeLoot()
     raise BadAction("unknown action")
 
 
@@ -213,8 +298,8 @@ def to_json(action: Action) -> dict[str, Any]:
             return {"type": "roll"}
         case Reroll():
             return {"type": "reroll"}
-        case Strike(bolts, sacrifice):
-            return {"type": "strike", "bolts": bolts, "sacrifice": sacrifice}
+        case Strike(bolts, sacrifice, fists):
+            return {"type": "strike", "bolts": bolts, "sacrifice": sacrifice, "fists": fists}
         case Sneak():
             return {"type": "sneak"}
         case Loot(drop):
@@ -229,6 +314,22 @@ def to_json(action: Action) -> dict[str, Any]:
             return {"type": "open_chest"}
         case CastHealing(seat, at):
             return {"type": "cast_healing", "seat": seat, "at": list(at)}
-        case EndTurn():
-            return {"type": "end_turn"}
+        case EndTurn(heal_to):
+            return {"type": "end_turn", "heal_to": heal_to}
+        case Eavesdrop(d):
+            return {"type": "eavesdrop", "dir": d}
+        case Sprint(to):
+            return {"type": "sprint", "to": list(to)}
+        case Blitz(at):
+            return {"type": "blitz", "at": list(at)}
+        case Retreat(d):
+            return {"type": "retreat", "dir": d}
+        case Challenge(seat):
+            return {"type": "challenge", "seat": seat}
+        case Steal(slot, index, drop):
+            return {"type": "steal", "slot": slot, "index": index, "drop": drop}
+        case Thorn(seat):
+            return {"type": "thorn", "seat": seat}
+        case TakeLoot():
+            return {"type": "take_loot"}
     raise BadAction("unknown action")

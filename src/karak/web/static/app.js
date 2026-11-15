@@ -50,7 +50,9 @@ function freshUi() {
     summaryAt: 0,
     pending: false,
     bolts: 0,
+    fists: 0,
     sacrifice: false,
+    mode: null,
     fresh: new Set(),
     rolling: false,
   };
@@ -171,7 +173,7 @@ function showHome() {
         h(
           "div",
           { class: "hero-row" },
-          S.config.heroes.map((hero, i) => h("span", { class: "bob", style: { animationDelay: `${-i * 0.5}s` } }, heroPortrait(hero.key, hero.color, 58))),
+          S.config.heroes.filter((x) => x.pickable && !x.expansion).map((hero, i) => h("span", { class: "bob", style: { animationDelay: `${-i * 0.5}s` } }, heroPortrait(hero.key, hero.color, 58))),
         ),
         h("p", { class: "tagline" }, "Descend beneath the ruined castle, map the labyrinth tile by tile, battle its monsters for their loot, unlock the treasure chests and slay the Dragon. Play with friends in the browser and fill empty seats with bots."),
         h(
@@ -322,6 +324,7 @@ function applyState(next) {
   S.ui.fresh = new Set(events.filter((e) => e.kind === "place").map((e) => e.tile.id));
   if (g?.phase !== "rolled") {
     S.ui.bolts = 0;
+    S.ui.fists = 0;
     S.ui.sacrifice = false;
   }
   S.ui.rolling = live && events.some((e) => e.kind === "roll");
@@ -331,7 +334,7 @@ function applyState(next) {
 }
 
 function afterApply(prev, next) {
-  const mine = (st) => st?.status === "playing" && st.game && st.game.current === st.you.seat && st.game.legal.length > 0;
+  const mine = (st) => st?.status === "playing" && st.game && st.game.actor === st.you.seat && st.game.legal.length > 0;
   if (mine(next) && !mine(prev)) {
     sfx.turn();
     const me = next.game.players[next.you.seat];
@@ -426,11 +429,44 @@ function playEffects(st, events) {
         banner("curse", "☠ The Curse", `falls upon ${seatName(st, ev.target)}`);
         break;
       case "knocked_out":
-        banner("loss", `${name} is knocked out`, "and misses the next turn");
+        banner("loss", `${seatName(st, ev.seat)} is knocked out`, "and misses the next turn");
+        break;
+      case "sprint":
+        sfx.step();
+        break;
+      case "blitz":
+        sfx.portal();
+        banner("win", "⚡ Blitz attack!", `${name} strikes without warning`);
+        break;
+      case "curse_roll":
+        sfx.dice();
+        banner(ev.cursed ? "curse" : "tie", `🎲 ${ev.die}: ${ev.cursed ? "cursed!" : "safe"}`, ev.cursed ? `${name} is touched by Karak's curse` : `${name} escapes the cursed chamber`);
+        break;
+      case "duel":
+        sfx.clash();
+        banner("tie", "⚔️ Duel in the arena!", `${name} vs ${seatName(st, ev.defender)}`, 2000);
+        break;
+      case "duel_result":
+        if (ev.winner == null) banner("tie", "A draw", `${ev.totals[0]} vs ${ev.totals[1]}`);
+        else {
+          sfx.win();
+          banner("win", `${seatName(st, ev.winner)} wins the duel`, `${ev.totals[0]} vs ${ev.totals[1]}`);
+        }
+        break;
+      case "thorn":
+        sfx.hurt();
+        banner("loss", "🥀 Thorn of darkness", `${seatName(st, ev.target)} loses a life`);
+        break;
+      case "steal":
+        sfx.loot();
+        break;
+      case "lord":
+        sfx.curse();
+        banner("dragon", "👑 The Lord of Karak!", `${name} is possessed and gains every skill`, 3200);
         break;
     }
   }
-  const moved = [...events].reverse().find((e) => ["move", "place", "teleport", "retreat", "swap", "reincarnate", "cast_healing"].includes(e.kind));
+  const moved = [...events].reverse().find((e) => ["move", "place", "teleport", "retreat", "swap", "reincarnate", "cast_healing", "sprint", "blitz"].includes(e.kind));
   if (moved && S.board) {
     const p = st.game.players[moved.kind === "cast_healing" ? moved.target : moved.seat];
     if (p) S.board.focus(p.x, p.y);
@@ -675,7 +711,10 @@ function askName(title, dismissable = false) {
 
 function showRules() {
   let close = null;
-  const monsters = S.config.monsters;
+  const monsters = S.config.monsters.filter((m) => !m.expansion);
+  const regentMonsters = S.config.monsters.filter((m) => m.expansion);
+  const beast = (m) => h("div", { class: "beast" }, token(m.key, 46, m.strength), h("div", {}, h("b", {}, m.name), h("small", {}, ` ×${m.count}`), h("div", { class: "loot-line" }, "drops ", itemIcon(m.loot, 20), S.items[m.loot]?.name)));
+  const heroRule = (hero) => h("div", { class: "hero-rule" }, heroPortrait(hero.key, hero.color, 44), h("div", {}, h("b", {}, hero.name), hero.skills.map((sk) => h("div", { class: "skill" }, h("i", {}, sk.name), ": ", sk.text))));
   close = openDialog(
     h(
       "div",
@@ -706,7 +745,7 @@ function showRules() {
         h(
           "div",
           { class: "bestiary" },
-          monsters.map((m) => h("div", { class: "beast" }, token(m.key, 46, m.strength), h("div", {}, h("b", {}, m.name), h("small", {}, ` ×${m.count}`), h("div", { class: "loot-line" }, "drops ", itemIcon(m.loot, 20), S.items[m.loot]?.name)))),
+          monsters.map(beast),
         ),
         h("h4", {}, "Equipment"),
         h(
@@ -726,8 +765,20 @@ function showRules() {
         h(
           "div",
           { class: "hero-rules" },
-          S.config.heroes.map((hero) => h("div", { class: "hero-rule" }, heroPortrait(hero.key, hero.color, 44), h("div", {}, h("b", {}, hero.name), hero.skills.map((sk) => h("div", { class: "skill" }, h("i", {}, sk.name), ": ", sk.text))))),
+          S.config.heroes.filter((x) => x.pickable && !x.expansion).map(heroRule),
         ),
+        h("h4", {}, "Karak: Regent (optional expansion, switched on in the table rules)"),
+        h(
+          "ul",
+          {},
+          h("li", {}, h("b", {}, "Battle arena"), " (straight passage): the first hero to step in summons another hero to a duel. The challenger rolls and decides on spells first, then the summoned hero. The higher total wins (spells and hero skills all count); the winner takes one item or treasure, the loser loses 1 life. A draw changes nothing. Afterwards it's a plain corridor."),
+          h("li", {}, h("b", {}, "Cursed chamber"), " (4 entrances): whoever enters rolls a die; on 1–3 the Curse falls on them (it moves from whoever had it). Falling back onto it after a fight rolls again."),
+          h("li", {}, h("b", {}, "Thorn of darkness"), " (dropped by bats): spell that costs no move; take 1 life from another hero, on your own turn."),
+          h("li", {}, h("b", {}, "Frost fist"), " (dropped by ice mages): spell, +2 in a fight, even after rolling."),
+          h("li", {}, h("b", {}, "The Lord of Karak"), " (game version): when 5 arenas and cursed chambers have been found, the weakest hero (least treasure, then weapon power, then other items, then lowest die) is healed, uncursed and possessed: he loses his own skills (2 players: keeps them) and gains the skills of all other heroes."),
+        ),
+        h("div", { class: "bestiary" }, regentMonsters.map(beast)),
+        h("div", { class: "hero-rules" }, S.config.heroes.filter((x) => x.expansion).map(heroRule), S.config.heroes.filter((x) => !x.pickable).map(heroRule)),
         h("h4", {}, "Controls"),
         h("ul", {}, h("li", {}, "Click a glowing tile (or use the arrow keys / WASD) to walk or explore. ", h("b", {}, "Space"), " rolls and strikes, ", h("b", {}, "E"), " ends your turn, ", h("b", {}, "H"), " asks for a hint, ", h("b", {}, "0"), " recentres the map.")),
         h("p", { class: "small-print" }, "House rule: if the labyrinth can't grow any more while the Dragon is still in the bag, it wakes up in the empty room farthest from the start."),
@@ -817,6 +868,7 @@ function renderLobby(st, main) {
       navigator.share ? h("button", { class: "btn", onclick: () => navigator.share({ title: "Play Karak with me", url: inviteUrl() }).catch(() => {}) }, "Share") : null,
     ),
   );
+  const lobbyHeroes = S.config.heroes.filter((x) => x.pickable && (!x.expansion || st.settings.expansion));
   const taken = new Map(st.seats.filter((s) => s.hero).map((s) => [s.hero, s]));
   const seatRows = st.seats.map((s, i) => {
     const bot = s.bot ? botInfo(s.bot) : null;
@@ -827,7 +879,7 @@ function renderLobby(st, main) {
           "select",
           { class: "select hero-select", onchange: (e) => send({ type: "pick_hero", seat: i, hero: e.target.value || null }) },
           h("option", { value: "" }, "🎲 Random hero"),
-          S.config.heroes.map((hero) => {
+          lobbyHeroes.map((hero) => {
             const owner = taken.get(hero.key);
             const opt = h("option", { value: hero.key, disabled: owner && owner !== s }, hero.name + (owner && owner !== s ? ` (${owner.name})` : ""));
             opt.selected = s.hero === hero.key;
@@ -866,13 +918,13 @@ function renderLobby(st, main) {
       "summary",
       {},
       h("span", { class: "hp-title" }, "Heroes and their skills"),
-      h("span", { class: "hp-faces" }, S.config.heroes.map((hero) => heroPortrait(hero.key, hero.color, 30))),
+      h("span", { class: "hp-faces" }, lobbyHeroes.map((hero) => heroPortrait(hero.key, hero.color, 30))),
       h("small", {}, mySeat != null ? "click a hero to choose yours" : ""),
     ),
     h(
       "div",
       { class: "hero-grid" },
-      S.config.heroes.map((hero) => {
+      lobbyHeroes.map((hero) => {
         const owner = taken.get(hero.key);
         const mine = owner && st.seats.indexOf(owner) === mySeat;
         return h(
@@ -899,7 +951,7 @@ function renderLobby(st, main) {
       S.bots.map((b) =>
         h(
           "button",
-          { class: "bot-btn", disabled: !isHost || n >= MAX_SEATS, title: b.description, onclick: () => send({ type: "add_bot", bot: b.key }) },
+          { class: "bot-btn", disabled: !isHost || n >= MAX_SEATS || (st.settings.expansion && !b.expansion), title: st.settings.expansion && !b.expansion ? "This bot only knows the base game" : b.description, onclick: () => send({ type: "add_bot", bot: b.key }) },
           h("span", { class: "bname" }, b.label),
           h("span", { class: "stars" }, "★".repeat(b.stars), h("span", { style: { opacity: 0.3 } }, "★".repeat(5 - b.stars))),
           h("span", { class: "bdesc" }, b.description),
@@ -919,8 +971,8 @@ function renderLobby(st, main) {
         return opt;
       }),
     );
-  const toggle = (k) => {
-    const input = h("input", { type: "checkbox", disabled: !isHost, onchange: (e) => change(k, e.target.checked) });
+  const toggle = (k, off = false) => {
+    const input = h("input", { type: "checkbox", disabled: !isHost || off, onchange: (e) => change(k, e.target.checked) });
     input.checked = !!set[k];
     return h("label", { class: "switch" }, input, h("span"));
   };
@@ -935,6 +987,8 @@ function renderLobby(st, main) {
       row("Turn timer", "The autopilot finishes your turn when time runs out", select("turn_timer", [[0, "Off"], [30, "30 s"], [60, "1 min"], [90, "90 s"], [180, "3 min"]])),
       row("Bot speed", "How fast bots play", select("bot_speed", [["slow", "Relaxed"], ["normal", "Normal"], ["fast", "Fast"]])),
       row("Hints", "Players may ask the Champion bot for advice", toggle("hints")),
+      row("Karak: Regent expansion", "Adds battle arenas, cursed chambers and more chambers, four heroes (Barbarian, Battle mage, Acrobat, Ranger), bats, ice mages and two new spells. The trained AI bot only knows the base game", toggle("expansion")),
+      row("The Lord of Karak", "Game version: once 5 arenas and cursed chambers are found, the weakest hero is possessed by the Lord of Karak and gets every other hero's skills. Needs the expansion", toggle("lord", !set.expansion)),
       row("See what's left", "Tap the tile pile or the bag to see which tiles, monsters and chests remain. Off: only how many", toggle("peek")),
     ),
   );
@@ -952,7 +1006,16 @@ function renderLobby(st, main) {
 // ------------------------------------------------------------------ game view
 const legalOf = (g, type) => (g.legal || []).filter((a) => a.type === type);
 const has = (g, type) => (g.legal || []).some((a) => a.type === type);
-const myTurn = (st) => st.status === "playing" && st.game.current === st.you.seat && st.game.legal.length > 0 && !S.ui.pending;
+const myTurn = (st) => st.status === "playing" && st.game.actor === st.you.seat && st.game.legal.length > 0 && !S.ui.pending;
+const skillsOf = (g, p) => (p.hero === "lord" ? p.skills.flatMap((k) => S.heroes[k]?.skills || []) : S.heroes[p.hero].skills);
+// Where a hero carries an item: the acrobat keeps spare daggers in her spell slots.
+const carrySlot = (g, seat, item) => {
+  const p = g.players[seat];
+  const slot = S.items[item].slot;
+  if (item === "dagger" && p.skills.includes("acrobat") && g.cursed !== seat && p.weapons.length >= 2 && p.spells.length < 3) return "spell";
+  return slot;
+};
+const ownedIn = (p, slot) => (slot === "weapon" ? p.weapons : slot === "spell" ? p.spells : p.keys);
 
 function ensureBoard(main) {
   if (S.board && main.querySelector(".game")) return;
@@ -980,9 +1043,21 @@ function renderGame(st, main) {
   g.monsters = S.monsters;
   const mine = myTurn(st);
   if (!mine || !has(g, "cast_healing")) S.ui.healing = null;
-  const legal = !mine ? [] : S.ui.healing != null ? g.legal.filter((a) => a.type === "cast_healing" && a.seat === S.ui.healing) : g.legal.filter((a) => a.type !== "cast_healing");
+  if (!mine || !has(g, S.ui.mode || "-")) S.ui.mode = null;
+  const dash = ["sprint", "blitz"];
+  const legal = !mine
+    ? []
+    : S.ui.healing != null
+      ? g.legal.filter((a) => a.type === "cast_healing" && a.seat === S.ui.healing)
+      : S.ui.mode
+        ? g.legal.filter((a) => a.type === S.ui.mode)
+        : g.legal.filter((a) => a.type !== "cast_healing" && !dash.includes(a.type));
   S.board.update(g, st.seats, { me: st.you.seat, legal, hint: S.ui.hint, fresh: S.ui.fresh });
   renderHud($("#hud"), g, { onTiles: (btn) => toggleHudPopup(btn, "pile"), onBag: (btn) => toggleHudPopup(btn, "bag") });
+  if (g.lord_mode) {
+    const lord = g.lord != null ? `${seatName(st, g.lord)} is the Lord of Karak` : `${Math.min(g.chambers, 5)} of 5 arenas and cursed chambers found: then the Lord of Karak possesses the weakest hero`;
+    $("#hud").append(h("div", { class: `hud-btn static lord-count ${g.lord != null ? "awake" : ""}`, title: lord }, h("span", {}, "👑"), h("span", { class: "num" }, g.lord != null ? "!" : `${Math.min(g.chambers, 5)}/5`)));
+  }
   renderPlayers(st);
   renderDock(st);
   renderStatus(st);
@@ -1012,7 +1087,7 @@ function onBoardAct(action) {
 }
 
 function tileLabel(t) {
-  return { start: "The entrance (a healing fountain)", corridor: "Corridor", room: "Chamber", fountain: "Healing fountain", portal: "Teleportation gate" }[t.kind];
+  return { start: "The entrance (a healing fountain)", corridor: "Corridor", room: "Chamber", fountain: "Healing fountain", portal: "Teleportation gate", arena: t.spent ? "Battle arena (fought in)" : "Battle arena", cursed: "Cursed chamber" }[t.kind];
 }
 
 function onTileClick([x, y], e) {
@@ -1032,6 +1107,8 @@ function onTileClick([x, y], e) {
   if (here.length) parts.push(h("div", { class: "pop-row" }, here.map(({ p, seat }) => h("span", { class: "chip-item" }, heroPortrait(p.hero, st.seats[seat].color, 22), st.seats[seat].name))));
   if (t.kind === "fountain" || t.kind === "start") parts.push(h("p", { class: "why" }, "End your turn here to heal fully and lift the Curse."));
   if (t.kind === "portal") parts.push(h("p", { class: "why" }, "Step to any other discovered gate for 1 move."));
+  if (t.kind === "arena") parts.push(h("p", { class: "why" }, t.spent ? "The duel has been fought: it's a plain corridor now." : "The first hero to enter summons another hero to a duel."));
+  if (t.kind === "cursed") parts.push(h("p", { class: "why" }, "Everyone who enters rolls a die: on 1–3 the Curse falls on them."));
   openPopover(e.clientX, e.clientY, h("div", {}, parts));
 }
 
@@ -1051,8 +1128,9 @@ function renderPlayers(st) {
   box.replaceChildren(
     ...st.seats.map((s, seat) => {
       const p = g.players[seat];
-      const current = g.current === seat;
+      const current = g.actor === seat;
       const badges = [];
+      if (g.lord === seat) badges.push("👑 possessed");
       if (s.bot) badges.push(botInfo(s.bot)?.label || "bot");
       if (s.autoplay) badges.push("autopilot");
       if (!s.bot && !s.connected) badges.push("offline");
@@ -1073,7 +1151,7 @@ function renderPlayers(st) {
           "div",
           { class: "pl-top" },
           heroPortrait(p.hero, s.color, 38),
-          h("div", { class: "pl-id" }, h("span", { class: "pl-name" }, s.name, seat === st.you.seat ? h("small", {}, " (you)") : null), h("span", { class: "pl-hero" }, heroName(p.hero), badges.length ? ` · ${badges.join(" · ")}` : "")),
+          h("div", { class: "pl-id" }, h("span", { class: "pl-name" }, s.name, seat === st.you.seat ? h("small", {}, " (you)") : null), h("span", { class: "pl-hero" }, p.hero === "lord" ? `Lord of Karak (was ${heroName(p.origin)})` : heroName(p.hero), badges.length ? ` · ${badges.join(" · ")}` : "")),
           g.cursed === seat ? h("span", { title: "Cursed: no hero skills until healed at a fountain" }, art("misc-curse", 22)) : null,
           h("span", { class: "pl-score", title: "Treasure points" }, pts(p.points)),
         ),
@@ -1143,10 +1221,11 @@ function renderDock(st) {
   const cursed = g.cursed === seat;
   const mine = myTurn(st);
   const canCast = mine && has(g, "cast_healing");
+  const canThorn = mine && has(g, "thorn");
   const spells = [0, 1, 2].map((i) => {
     const sp = p.spells[i];
-    const castable = sp === "healing" && canCast;
-    return slot(sp, "✦", "Spell slot", { cls: castable ? "castable" : "", onclick: castable ? () => castHealingDialog(st) : null });
+    const castable = (sp === "healing" && canCast) || (sp === "thorn" && canThorn);
+    return slot(sp, "✦", "Spell slot", { cls: castable ? "castable" : "", onclick: castable ? (e) => (sp === "thorn" ? thornPopover(st, e) : castHealingDialog(st)) : null });
   });
   const sheet = h(
     "div",
@@ -1158,8 +1237,8 @@ function renderDock(st) {
       h(
         "div",
         { class: "sheet-id" },
-        h("div", { class: "sheet-name" }, hero.name, cursed ? h("span", { class: "curse-tag", title: "No hero skills until you heal at a fountain" }, art("misc-curse", 18), " Cursed") : null),
-        hero.skills.map((sk) => h("div", { class: `skill ${cursed ? "off" : ""}`, title: sk.text }, h("b", {}, sk.name), h("span", {}, sk.text))),
+        h("div", { class: "sheet-name" }, p.hero === "lord" ? `${hero.name} (was ${heroName(p.origin)})` : hero.name, cursed ? h("span", { class: "curse-tag", title: "No hero skills until you heal at a fountain" }, art("misc-curse", 18), " Cursed") : null),
+        skillsOf(g, p).map((sk) => h("div", { class: `skill ${cursed ? "off" : ""}`, title: sk.text }, h("b", {}, sk.name), h("span", {}, sk.text))),
       ),
     ),
     h(
@@ -1243,8 +1322,13 @@ function actionBar(st) {
       );
     }
     if (has(g, "cast_healing")) buttons.push(h("button", { class: `btn ${hinted("cast_healing")}`, onclick: () => castHealingDialog(st) }, itemIcon("healing", 22), " Portal of healing"));
+    for (const [type, label, help] of [["sprint", "🤸 Sprint", "Run up to 8 tiles over discovered tiles (this uses the whole turn). Click a glowing tile."], ["blitz", "⚡ Blitz", "Teleport to a monster and fight it (this uses the whole turn). Click a glowing monster."]]) {
+      if (has(g, type)) buttons.push(h("button", { class: `btn ${S.ui.mode === type ? "primary" : ""} ${hinted(type)}`, title: help, onclick: () => ((S.ui.mode = S.ui.mode === type ? null : type), render()) }, label));
+    }
+    if (has(g, "thorn")) buttons.push(h("button", { class: `btn ${hinted("thorn")}`, onclick: (e) => thornPopover(st, e) }, itemIcon("thorn", 22), " Thorn of darkness"));
     const healing = (here.kind === "fountain" || here.kind === "start") && (p.hp < g.max_hp || g.cursed === seat);
-    if (has(g, "end_turn")) buttons.push(h("button", { class: `btn ${healing ? "primary" : ""} end-btn ${hinted("end_turn")}`, onclick: () => act({ type: "end_turn" }), title: "E" }, healing ? "⛲ End turn & heal" : "End turn"));
+    const partial = legalOf(g, "end_turn").filter((a) => a.heal_to != null);
+    if (has(g, "end_turn")) buttons.push(h("button", { class: `btn ${healing ? "primary" : ""} end-btn ${hinted("end_turn")}`, onclick: (e) => (healing && partial.length ? healPopover(st, partial, e) : act({ type: "end_turn" })), title: "E" }, healing ? (partial.length ? "⛲ End turn & heal…" : "⛲ End turn & heal") : "End turn"));
     else buttons.push(h("span", { class: "ab-label" }, "🥷 Keep moving: you can't stop on a monster's tile"));
   }
   const tools = [];
@@ -1252,11 +1336,48 @@ function actionBar(st) {
   return h("div", { class: "action-bar" }, h("div", { class: "ab-top" }, h("span", { class: "ab-label" }, "Moves"), steps), h("div", { class: "ab-buttons" }, buttons), tools.length ? h("div", { class: "ab-tools" }, tools) : null);
 }
 
+function thornPopover(st, e) {
+  const g = st.game;
+  const targets = legalOf(g, "thorn");
+  openPopover(
+    e.clientX,
+    e.clientY,
+    h(
+      "div",
+      {},
+      h("h4", {}, "Thorn of darkness"),
+      h("p", { class: "why" }, "Free, on your own turn: the thorn is used up and the hero you choose loses 1 life."),
+      h("div", { class: "pay-list" }, targets.map((a) => h("button", { class: "btn", onclick: () => (closePopover(), act(a)) }, heroPortrait(g.players[a.seat].hero, st.seats[a.seat].color, 22), ` ${st.seats[a.seat].name} `, hpRow(g.players[a.seat], g.max_hp, 11)))),
+    ),
+  );
+}
+
+function healPopover(st, partial, e) {
+  const g = st.game;
+  const p = g.players[st.you.seat];
+  openPopover(
+    e.clientX,
+    e.clientY,
+    h(
+      "div",
+      {},
+      h("h4", {}, "Berserk: how much to heal?"),
+      h("p", { class: "why" }, "Fewer lives mean a bigger berserk bonus (3–4 HP: +1, 1–2 HP: +2)."),
+      h(
+        "div",
+        { class: "pay-list" },
+        h("button", { class: "btn primary", onclick: () => (closePopover(), act({ type: "end_turn" })) }, `Heal fully (${g.max_hp} HP)`),
+        [...partial].reverse().map((a) => h("button", { class: "btn", onclick: () => (closePopover(), act(a)) }, a.heal_to === p.hp ? `Stay at ${a.heal_to} HP` : `Heal to ${a.heal_to} HP`)),
+      ),
+    ),
+  );
+}
+
 function pickupPopover(st, item, options, e) {
   const g = st.game;
   const p = g.players[st.you.seat];
-  const slotName = S.items[item].slot;
-  const owned = slotName === "weapon" ? p.weapons : slotName === "spell" ? p.spells : p.keys;
+  const slotName = carrySlot(g, st.you.seat, item);
+  const owned = ownedIn(p, slotName);
   openPopover(
     e.clientX,
     e.clientY,
@@ -1312,27 +1433,35 @@ function statusText(st) {
   const g = st.game;
   const seat = st.you.seat;
   if (st.status === "game_over") return { parts: ["🏁 The Dragon is slain. The adventure is over"] };
-  const cur = g.current;
+  const cur = g.actor ?? g.current;
   const name = seatName(st, cur);
   const p = g.players[cur];
+  const duel = g.combat?.versus != null;
   if (cur === seat && g.legal.length) {
     switch (g.phase) {
       case "turn":
+        if (S.ui.mode) return { mine: true, parts: [S.ui.mode === "sprint" ? "🤸 Click a glowing tile to sprint there" : "⚡ Click a glowing monster to blitz it"] };
         return { mine: true, parts: [g.moves_left ? `Your turn: ${plural(g.moves_left, "move")} left. Click a glowing tile or use the arrow keys.` : "No moves left. Use this tile or end your turn"] };
       case "place":
         return { mine: true, parts: ["Turn the new tile so its passages lead where you want, then place it"] };
       case "choose_token":
         return { mine: true, parts: ["🔮 Foresight: choose which token to place in this room"] };
       case "combat":
-        return { mine: true, parts: [`⚔️ A ${S.monsters[g.combat.monster].name} blocks your way. Fight!`] };
+        return { mine: true, parts: [duel ? "⚔️ Duel! Roll the dice" : `⚔️ A ${S.monsters[g.combat.monster].name} blocks your way. Fight!`] };
       case "rolled":
         return { mine: true, parts: ["Add spells if you like, then strike"] };
       case "loot":
-        return { mine: true, parts: ["Your pack is full. Choose what to leave behind"] };
+        return { mine: true, parts: [has(g, "take_loot") ? "Take the loot, or leave it and fight on" : "Your pack is full. Choose what to leave behind"] };
       case "curse":
         return { mine: true, parts: ["☠ Choose who receives the Curse"] };
       case "reincarnate":
         return { mine: true, parts: ["🔥 Undying! Choose the fountain to rise at"] };
+      case "retreat":
+        return { mine: true, parts: ["Click a glowing neighbouring tile to fall back to"] };
+      case "challenge":
+        return { mine: true, parts: ["⚔️ Battle arena! Choose the hero to challenge"] };
+      case "steal":
+        return { mine: true, parts: ["🏅 You won the duel! Choose what to take"] };
     }
   }
   const who = st.seats[cur]?.bot ? `${name} 🤖` : name;
@@ -1340,11 +1469,14 @@ function statusText(st) {
     turn: "explores the labyrinth…",
     place: "turns a new tile…",
     choose_token: "reads the fates…",
-    combat: `faces the ${g.combat ? S.monsters[g.combat.monster].name : "monster"}…`,
+    combat: duel ? "fights a duel in the arena…" : `faces the ${g.combat ? S.monsters[g.combat.monster].name : "monster"}…`,
     rolled: "is fighting…",
     loot: "sorts the loot…",
     curse: "chooses a victim for the Curse…",
     reincarnate: "rises again…",
+    retreat: "falls back…",
+    challenge: "chooses a hero to challenge…",
+    steal: "picks the spoils of the duel…",
   }[g.phase];
   return { parts: [`${who} the ${heroName(p.hero)} ${doing || ""}`] };
 }
@@ -1353,7 +1485,7 @@ function renderStatus(st) {
   const box = $("#status");
   if (!box) return;
   const info = statusText(st);
-  const cur = st.game.current;
+  const cur = st.game.actor ?? st.game.current;
   box.className = `status ${info.mine ? "mine" : ""}`;
   box.replaceChildren(
     h("span", { class: "stext" }, cur != null ? heroPortrait(st.game.players[cur].hero, st.seats[cur].color, 24) : null, info.parts),
@@ -1374,10 +1506,14 @@ function renderPanel(st) {
   let panel = null;
   if (g.phase === "place" && mine) panel = placePanel(st);
   else if (S.ui.healing != null && mine && has(g, "cast_healing")) panel = healingPanel(st);
-  else if (g.combat) panel = combatPanel(st, mine);
+  else if (g.combat && g.phase !== "retreat") panel = combatPanel(st, mine);
   else if (g.phase === "choose_token") panel = tokenPanel(st, mine);
   else if (g.phase === "loot") panel = lootPanel(st, mine);
   else if (g.phase === "curse") panel = cursePanel(st, mine);
+  else if (S.ui.mode && mine) panel = dashPanel(st);
+  else if (g.phase === "challenge") panel = challengePanel(st, mine);
+  else if (g.phase === "steal") panel = stealPanel(st, mine);
+  else if (g.phase === "retreat" && mine) panel = h("div", { class: "float-panel small" }, h("h3", {}, "⚡ Fall back"), h("p", { class: "sub" }, "Click a glowing neighbouring tile to retreat to."));
   else if (g.phase === "reincarnate" && mine) panel = h("div", { class: "float-panel small" }, h("h3", {}, "🔥 Undying"), h("p", { class: "sub" }, "Click a glowing fountain on the map to rise there, fully healed."));
   if (panel) {
     const key = `${g.turn}|${g.current}|${g.combat ? "fight" : g.phase}|${panel.className}`;
@@ -1408,59 +1544,92 @@ function placePanel(st) {
 }
 
 function heroSkill(g, seat, hero) {
-  return g.players[seat].hero === hero && g.cursed !== seat;
+  return g.players[seat].skills.includes(hero) && g.cursed !== seat;
 }
 
 const STRIKE_TEXT = { win: "⚔️ Strike: victory!", tie: "🛡 Strike: a stand-off", loss: "💥 Strike: you'll be hurt" };
+const DUEL_TEXT = { win: "⚔️ Strike: you win the duel!", tie: "🛡 Strike: a draw", loss: "💥 Strike: you lose the duel", roll: "⚔️ Lock in this total" };
 
-// Everything in the fight that depends on the bolts / blood price the player is toggling.
+// Everything in the fight that depends on the spells / blood price the player is toggling.
 function combatMath(st, mine) {
   const g = st.game;
   const c = g.combat;
-  const m = S.monsters[c.monster];
-  const seat = g.current;
+  const duel = c.versus != null;
+  const m = duel ? null : S.monsters[c.monster];
+  const seat = g.actor ?? g.current;
   const p = g.players[seat];
-  const owned = p.spells.filter((x) => x === "bolt").length;
-  const arcane = heroSkill(g, seat, "wizard") ? owned : 0;
-  const bolts = owned - arcane;
+  const wizard = heroSkill(g, seat, "wizard");
+  const ownedBolts = p.spells.filter((x) => x === "bolt").length;
+  const ownedFists = p.spells.filter((x) => x === "frost").length;
+  const arcane = wizard ? ownedBolts + 2 * ownedFists : 0;
+  const bolts = wizard ? 0 : ownedBolts;
+  const fists = wizard ? 0 : ownedFists;
   const sacrificeOk = mine && (g.legal || []).some((a) => a.type === "strike" && a.sacrifice);
   const useBolts = Math.min(S.ui.bolts, bolts);
+  const useFists = Math.min(S.ui.fists, fists);
   const sac = sacrificeOk && S.ui.sacrifice;
   const diceSum = c.dice.reduce((a, b) => a + b, 0);
-  const total = diceSum + g.bonus + useBolts + (sac ? 1 : 0);
-  const ties = heroSkill(g, seat, "thief");
-  const outcome = total > m.strength || (ties && total === m.strength) ? "win" : total === m.strength ? "tie" : "loss";
-  return { g, c, m, p, seat, arcane, bolts, sacrificeOk, useBolts, sac, diceSum, total, outcome };
+  const total = diceSum + g.bonus + useBolts + 2 * useFists + (sac ? 1 : 0);
+  const ties = heroSkill(g, seat, "thief") && (!duel || !c.thief0);
+  const strength = duel ? (c.stage === 1 ? c.target : null) : m.strength;
+  let outcome = "roll";
+  if (strength != null) outcome = total > strength || (ties && total === strength) ? "win" : total === strength ? "tie" : "loss";
+  return { g, c, m, duel, p, seat, arcane, bolts, fists, sacrificeOk, useBolts, useFists, sac, diceSum, total, outcome, strength };
 }
 
 function totalLine(k) {
-  const { g, m, p, arcane, useBolts, sac, diceSum, total, outcome } = k;
+  const { g, p, arcane, useBolts, useFists, sac, diceSum, total, outcome, strength } = k;
   const parts = [];
-  if (p.power) parts.push(h("span", { class: "bonus" }, p.weapons.map((w) => itemIcon(w, 18)), ` +${p.power}`));
-  if (arcane) parts.push(h("span", { class: "bonus", title: "Arcane focus: the wizard's bolts always count" }, itemIcon("bolt", 18), ` +${arcane}`));
-  if (g.bonus > p.power + arcane) parts.push(h("span", { class: "bonus", title: "Foresight" }, "🔮 +1"));
+  if (p.power) parts.push(h("span", { class: "bonus", title: "Weapons" }, p.weapons.map((w) => itemIcon(w, 18)), ` +${p.power}`));
+  if (arcane) parts.push(h("span", { class: "bonus", title: "Arcane focus: the wizard's bolts and frost fists always count" }, itemIcon("bolt", 18), ` +${arcane}`));
+  const extra = g.bonus - p.power - arcane;
+  if (extra > 0) parts.push(h("span", { class: "bonus", title: "Foresight / berserk" }, "✨ +", extra));
   if (useBolts) parts.push(h("span", { class: "bonus" }, itemIcon("bolt", 18), ` +${useBolts}`));
+  if (useFists) parts.push(h("span", { class: "bonus" }, itemIcon("frost", 18), ` +${2 * useFists}`));
   if (sac) parts.push(h("span", { class: "bonus" }, "🩸 +1"));
-  return h("div", { class: `total ${outcome}` }, h("b", {}, diceSum), parts, h("span", { class: "eq" }, "="), h("b", { class: "sum" }, total), h("span", { class: "vs" }, "vs"), h("b", {}, m.strength));
+  return h("div", { class: `total ${outcome}` }, h("b", {}, diceSum), parts, h("span", { class: "eq" }, "="), h("b", { class: "sum" }, total), strength != null ? [h("span", { class: "vs" }, "vs"), h("b", {}, strength)] : null);
 }
 
-// Toggling bolts or the blood price only touches the sum, the bolt buttons and the strike button.
+// Toggling spells or the blood price only touches the sum, the spell buttons and the strike button.
 function updateCombat(st) {
   const el = $("#panel .combat-panel");
   if (!el) return renderPanel(st);
   const k = combatMath(st, true);
   el.querySelector(".total")?.replaceWith(totalLine(k));
   el.querySelectorAll(".bolt-btn").forEach((b, i) => b.classList.toggle("on", i < k.useBolts));
+  el.querySelectorAll(".fist-btn").forEach((b, i) => b.classList.toggle("on", i < k.useFists));
   const strike = el.querySelector(".btn.strike");
   if (strike) {
     strike.className = `btn big strike ${k.outcome}`;
-    strike.textContent = STRIKE_TEXT[k.outcome];
+    strike.textContent = (k.duel ? DUEL_TEXT : STRIKE_TEXT)[k.outcome];
   }
+}
+
+function spellPicker(st, label, item, count, used, key, title) {
+  return h(
+    "div",
+    { class: "bolt-picker" },
+    h("span", { class: "label" }, label),
+    Array.from({ length: count }, (_, i) =>
+      h(
+        "button",
+        {
+          class: `bolt-btn ${key === "fists" ? "fist-btn" : ""} ${i < used ? "on" : ""}`,
+          title,
+          onclick: () => {
+            S.ui[key] = i < Math.min(S.ui[key], count) ? i : i + 1;
+            updateCombat(st);
+          },
+        },
+        itemIcon(item, 30),
+      ),
+    ),
+  );
 }
 
 function combatPanel(st, mine) {
   const k = combatMath(st, mine);
-  const { g, c, m, p, seat, bolts, sacrificeOk, useBolts, outcome } = k;
+  const { g, c, m, duel, p, seat, bolts, fists, sacrificeOk, useBolts, useFists, outcome } = k;
   const color = st.seats[seat].color;
   const rolled = c.dice.length > 0;
   const dice = rolled ? c.dice.map((v, i) => die(v, S.ui.rolling ? `rolling r${i}` : "")) : [die(0, "blank"), die(0, "blank")];
@@ -1469,29 +1638,8 @@ function combatPanel(st, mine) {
     controls.push(h("button", { class: "btn primary big", onclick: () => act({ type: "roll" }), title: "Space" }, "🎲 Roll the dice"));
     if (has(g, "sneak")) controls.push(h("button", { class: "btn", onclick: () => act({ type: "sneak" }) }, "🥷 Slip past"));
   } else if (mine && g.phase === "rolled") {
-    if (bolts) {
-      controls.push(
-        h(
-          "div",
-          { class: "bolt-picker" },
-          h("span", { class: "label" }, "Magic bolts:"),
-          Array.from({ length: bolts }, (_, i) =>
-            h(
-              "button",
-              {
-                class: `bolt-btn ${i < useBolts ? "on" : ""}`,
-                title: "+1 each",
-                onclick: () => {
-                  S.ui.bolts = i < Math.min(S.ui.bolts, bolts) ? i : i + 1;
-                  updateCombat(st);
-                },
-              },
-              itemIcon("bolt", 30),
-            ),
-          ),
-        ),
-      );
-    }
+    if (bolts) controls.push(spellPicker(st, "Magic bolts:", "bolt", bolts, useBolts, "bolts", "+1 each"));
+    if (fists) controls.push(spellPicker(st, "Frost fists:", "frost", fists, useFists, "fists", "+2 each"));
     if (sacrificeOk) {
       controls.push(
         h(
@@ -1519,32 +1667,89 @@ function combatPanel(st, mine) {
           title: "Space",
           onclick: () => {
             const now = combatMath(st, mine);
-            act({ type: "strike", bolts: now.useBolts, sacrifice: now.sac });
+            act({ type: "strike", bolts: now.useBolts, fists: now.useFists, sacrifice: now.sac });
           },
         },
-        STRIKE_TEXT[outcome],
+        (duel ? DUEL_TEXT : STRIKE_TEXT)[outcome],
       ),
     );
     controls.push(h("div", { class: "actions" }, btnRow));
   }
+  const spellNote = (bolts ? ` (+ up to ${plural(bolts, "bolt")})` : "") + (fists ? ` (+ up to ${plural(fists, "frost fist")})` : "");
+  const left = h("div", { class: "side-hero" }, heroPortrait(p.hero, color, 64), h("div", { class: "vs-name" }, seatName(st, seat)), hpRow(p, g.max_hp, 14));
+  let right;
+  let mid;
+  if (duel) {
+    const other = c.stage === 0 ? c.versus : g.current;
+    const q = g.players[other];
+    right = h("div", { class: "side-hero" }, heroPortrait(q.hero, st.seats[other].color, 64), h("div", { class: "vs-name" }, seatName(st, other)), hpRow(q, g.max_hp, 14));
+    mid = h(
+      "div",
+      { class: "vs-mid" },
+      h("div", { class: "loot-line" }, c.stage === 0 ? `⚔️ ${seatName(st, g.current)} challenges ${seatName(st, c.versus)}` : `${seatName(st, g.current)} totalled ${c.target}. ${seatName(st, seat)} must beat it`),
+      h("div", { class: "dice-row" }, dice),
+      rolled ? totalLine(k) : h("div", { class: "total" }, "You add ", h("b", {}, `+${g.bonus}`), spellNote),
+    );
+  } else {
+    right = h("div", { class: "side-monster" }, token(c.monster, 72, m.strength), h("div", { class: "vs-name" }, m.name), h("div", { class: "loot-line" }, "drops ", itemIcon(m.loot, 18), S.items[m.loot].name));
+    mid = h("div", { class: "vs-mid" }, h("div", { class: "dice-row" }, dice), rolled ? totalLine(k) : h("div", { class: "total" }, "Beat ", h("b", {}, m.strength), ", you add ", h("b", {}, `+${g.bonus}`), spellNote));
+  }
+  return h("div", { class: `float-panel combat-panel ${!duel && c.monster === "dragon" ? "dragon" : ""}` }, h("div", { class: "versus" }, left, mid, right), controls);
+}
+
+function dashPanel(st) {
+  const type = S.ui.mode;
   return h(
     "div",
-    { class: `float-panel combat-panel ${c.monster === "dragon" ? "dragon" : ""}` },
+    { class: "float-panel small" },
+    h("h3", {}, type === "sprint" ? "🤸 Sprint" : "⚡ Blitz attack"),
+    h("p", { class: "sub" }, type === "sprint" ? "Run up to 8 tiles over discovered tiles. Arenas and cursed chambers stop you. This uses the whole turn." : "Teleport to any monster and fight it. This uses the whole turn."),
+    h("div", { class: "actions" }, h("button", { class: "btn ghost", onclick: () => ((S.ui.mode = null), render()) }, "Cancel")),
+  );
+}
+
+function challengePanel(st, mine) {
+  const g = st.game;
+  if (!mine) return h("div", { class: "float-panel small" }, h("h3", {}, "⚔️ Battle arena"), h("p", { class: "sub" }, `${seatName(st, g.current)} entered the arena and chooses a hero to challenge…`));
+  return h(
+    "div",
+    { class: "float-panel curse-panel" },
+    h("h3", {}, "⚔️ Battle arena"),
+    h("p", { class: "sub" }, "Summon a hero to a duel. Highest total wins and takes one item; the loser loses a life."),
     h(
       "div",
-      { class: "versus" },
-      h("div", { class: "side-hero" }, heroPortrait(p.hero, color, 64), h("div", { class: "vs-name" }, seatName(st, seat)), hpRow(p, g.max_hp, 14)),
-      h(
-        "div",
-        { class: "vs-mid" },
-        h("div", { class: "dice-row" }, dice),
-        rolled
-          ? totalLine(k)
-          : h("div", { class: "total" }, "Beat ", h("b", {}, m.strength), ", you add ", h("b", {}, `+${g.bonus}`), bolts ? ` (+ up to ${plural(bolts, "bolt")})` : ""),
-      ),
-      h("div", { class: "side-monster" }, token(c.monster, 72, m.strength), h("div", { class: "vs-name" }, m.name), h("div", { class: "loot-line" }, "drops ", itemIcon(m.loot, 18), S.items[m.loot].name)),
+      { class: "curse-list" },
+      legalOf(g, "challenge").map((a) => {
+        const p = g.players[a.seat];
+        return h("button", { class: "curse-card", onclick: () => act(a) }, h("div", { class: "pop-row" }, heroPortrait(p.hero, st.seats[a.seat].color, 36), h("div", {}, h("b", {}, seatName(st, a.seat)), h("div", { class: "curse-skills" }, heroName(p.hero), `: ⚔+${p.power}`))), heroAssets(g, a.seat, 20));
+      }),
     ),
-    controls,
+  );
+}
+
+function stealPanel(st, mine) {
+  const g = st.game;
+  const [winner, loser] = g.spoils;
+  if (!mine) return h("div", { class: "float-panel small" }, h("h3", {}, "🏅 Spoils"), h("p", { class: "sub" }, `${seatName(st, winner)} won the duel and chooses what to take from ${seatName(st, loser)}…`));
+  const q = g.players[loser];
+  const w = g.players[winner];
+  const list = { weapon: q.weapons, spell: q.spells, key: q.keys, treasure: q.treasures };
+  return h(
+    "div",
+    { class: "float-panel small" },
+    h("h3", {}, "🏅 Spoils of the duel"),
+    h("p", { class: "sub" }, `Take one thing from ${seatName(st, loser)}.`),
+    h(
+      "div",
+      { class: "actions wrap" },
+      legalOf(g, "steal").map((a) => {
+        if (a.slot == null) return h("button", { class: "btn ghost", onclick: () => act(a) }, "Take nothing");
+        const item = list[a.slot][a.index];
+        const dest = a.slot === "treasure" ? null : carrySlot(g, winner, item);
+        const dropped = a.drop != null && dest ? ownedIn(w, dest)[a.drop] : null;
+        return h("button", { class: "btn primary", onclick: () => act(a) }, "Take ", itemIcon(item, 22), ` ${S.items[item].name}`, dropped ? [" and leave ", itemIcon(dropped, 22)] : null);
+      }),
+    ),
   );
 }
 
@@ -1570,19 +1775,21 @@ function tokenPanel(st, mine) {
 function lootPanel(st, mine) {
   const g = st.game;
   const item = g.loot_item;
-  if (!mine) return h("div", { class: "float-panel small" }, h("h3", {}, "Loot"), h("p", { class: "sub" }, `${seatName(st, g.current)} found `, itemIcon(item, 22), ` ${S.items[item].name} but their pack is full.`));
+  if (!mine) return h("div", { class: "float-panel small" }, h("h3", {}, "Loot"), h("p", { class: "sub" }, `${seatName(st, g.current)} found `, itemIcon(item, 22), ` ${S.items[item].name} and decides what to do with it.`));
   const p = g.players[g.current];
-  const slotName = S.items[item].slot;
-  const owned = slotName === "weapon" ? p.weapons : slotName === "spell" ? p.spells : p.keys;
+  const slotName = carrySlot(g, g.current, item);
+  const owned = ownedIn(p, slotName);
+  const optional = has(g, "take_loot");
   return h(
     "div",
     { class: "float-panel small" },
-    h("h3", {}, "Your pack is full"),
+    h("h3", {}, optional ? "Perseverance" : "Your pack is full"),
     h("div", { class: "pop-row center" }, itemIcon(item, 54), h("div", {}, h("b", {}, S.items[item].name), S.items[item].power ? ` (+${S.items[item].power})` : "")),
-    h("p", { class: "sub" }, "Whatever you leave stays on this tile for anyone to pick up."),
+    h("p", { class: "sub" }, optional ? "Take it and your turn ends, or leave it on the floor and fight on." : "Whatever you leave stays on this tile for anyone to pick up."),
     h(
       "div",
       { class: "actions wrap" },
+      optional ? h("button", { class: "btn primary", onclick: () => act({ type: "take_loot" }) }, "Take the ", itemIcon(item, 22), ` ${S.items[item].name}`) : null,
       legalOf(g, "loot").map((a) =>
         a.drop == null
           ? h("button", { class: "btn", onclick: () => act(a) }, "Leave the ", itemIcon(item, 22), ` ${S.items[item].name}`)
@@ -1663,7 +1870,7 @@ function showHint(action) {
       choose_token: () => `Keep the ${S.monsters[g.offer[action.index]]?.name || "chest"}`,
       roll: () => "Roll the dice",
       reroll: () => "Swing again",
-      strike: () => (action.bolts ? `Strike with ${plural(action.bolts, "bolt")}` : "Strike") + (action.sacrifice ? " and pay the blood price" : ""),
+      strike: () => (action.bolts ? `Strike with ${plural(action.bolts, "bolt")}` : action.fists ? `Strike with ${plural(action.fists, "frost fist")}` : "Strike") + (action.sacrifice ? " and pay the blood price" : ""),
       sneak: () => "Slip past it",
       loot: () => (action.drop == null ? "Leave the new item" : "Swap it in"),
       curse: () => (action.seat == null ? "Leave the Curse where it is" : `Curse ${seatName(st, action.seat)}`),
@@ -1672,9 +1879,18 @@ function showHint(action) {
       open_chest: () => "Open the chest",
       cast_healing: () => `Cast the portal of healing on ${seatName(st, action.seat)}`,
       end_turn: () => "End your turn",
+      eavesdrop: () => `Eavesdrop to the ${DIR_NAMES[action.dir]}`,
+      sprint: () => "Sprint there",
+      blitz: () => "Blitz that monster",
+      retreat: () => `Fall back ${DIR_NAMES[action.dir]}`,
+      challenge: () => `Challenge ${seatName(st, action.seat)}`,
+      steal: () => (action.slot ? "Take that" : "Take nothing"),
+      thorn: () => `Thorn ${seatName(st, action.seat)}`,
+      take_loot: () => "Take the loot",
     }[action.type]?.() || action.type;
   if (action.type === "strike") {
     S.ui.bolts = action.bolts;
+    S.ui.fists = action.fists || 0;
     S.ui.sacrifice = action.sacrifice;
   }
   if (action.type === "place" && g.pending) {

@@ -9,8 +9,10 @@ from karak.game.model import DIRS, Pos, Tile, has_exit, opposite, step
 
 
 @cache
-def _two_dice(steady: bool) -> tuple[tuple[int, float], ...]:
-    faces = range(2, 7) if steady else range(1, 7)
+def _two_dice(steady: bool, bear: bool = False) -> tuple[tuple[int, float], ...]:
+    faces = list(range(2, 7) if steady else range(1, 7))
+    if bear and not steady:
+        faces = [6 if f == 1 else f for f in faces]  # the ranger's bear: a 1 counts as a 6
     p = 1 / len(faces) ** 2
     dist: dict[int, float] = {}
     for a in faces:
@@ -20,13 +22,15 @@ def _two_dice(steady: bool) -> tuple[tuple[int, float], ...]:
 
 
 @cache
-def win_chance(need: int, steady: bool = False, ties_win: bool = False, reroll: bool = False) -> float:
+def win_chance(
+    need: int, steady: bool = False, ties_win: bool = False, reroll: bool = False, bear: bool = False
+) -> float:
     """Chance that two dice reach `need` (= monster strength - bonuses) and win.
 
     `steady`: ones are rolled again (swordsman). `ties_win`: thief. `reroll`: warrior throws again after a miss.
     """
     target = need if ties_win else need + 1
-    p = sum(q for total, q in _two_dice(steady) if total >= target)
+    p = sum(q for total, q in _two_dice(steady, bear) if total >= target)
     return p + (1 - p) * p if reroll else p
 
 

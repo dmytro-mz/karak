@@ -10,7 +10,7 @@ from collections import Counter
 from karak.bots import make_bot
 from karak.game import actions as A
 from karak.game.engine import Game, Phase
-from karak.game.model import Hero
+from karak.game.model import BASE_HEROES, Hero
 
 ap = argparse.ArgumentParser()
 ap.add_argument("bots", nargs="*", default=["champion"])
@@ -40,7 +40,7 @@ for key in args.bots:
     offered: Counter[str] = Counter()
     used: Counter[str] = Counter()
     for seed in range(args.n):
-        heroes = random.Random(seed).sample(list(Hero), 3)
+        heroes = random.Random(seed).sample(list(BASE_HEROES), 3)
         bots = [make_bot(key, seed * 10 + i) for i in range(3)]
         g = Game(heroes, seed=seed)
         while g.phase != Phase.GAME_OVER and g.turn < 600:
