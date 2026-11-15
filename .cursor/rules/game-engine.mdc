@@ -25,10 +25,21 @@ next player. REINCARNATE for the Warrior at 0 HP with several fountains. GAME_OV
 - Ending a turn on a healing tile (start or fountain) heals fully and lifts the Curse.
 - House rule: if the labyrinth can't grow and the Dragon is still in the bag, it wakes in the farthest empty room.
 
+## Karak: Regent (`RulesConfig(expansion=True, lord=True)`, tests in `tests/test_regent.py`)
+
+- Off by default: base games keep the exact 79-tile pile, 53-token bag and the 6 `BASE_HEROES` (the trained network
+  and `nn/encoding.py` only know those; `Hero` also holds the Regent heroes and `Hero.LORD`).
+- `Game.actor` is who must act: the current hero, except the summoned hero in the second half of an arena duel and
+  the duel winner choosing spoils. `legal_actions` / `step` / `Room` all go through `actor`, not `current`.
+- Skills are a set per player (`Player.skills`); the Lord of Karak holds several. Always ask `has_skill`, never `hero ==`.
+- Arena: `Tile.spent` once fought in. Cursed chamber rolls a die on entry and on being thrown back onto it.
+  Berserk heal choice is `EndTurn(heal_to)`; the acrobat's spare daggers live in spell slots (`carry_slot`).
+- Strengths of the bat (6) and ice mage (11) are our own choice: the rules text doesn't print them.
+
 ## Invariants (tested)
 
 - `legal_actions(seat)` is the single source of truth; `Game.step` raises `IllegalMove` and leaves state
   untouched for anything else.
-- Tiles + pile + pending == 80; slot limits and HP bounds hold at every step.
+- Tiles + pile + pending == 80 (98 with the expansion); slot limits and HP bounds hold at every step.
 - `Game.view(seat)` is all a bot may see; the pile and bag order are hidden.
 - Every hero skill has a test; keep them when changing combat.

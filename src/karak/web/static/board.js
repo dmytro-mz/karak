@@ -3,6 +3,7 @@
 
 import { HERO_FILL } from "./art.js";
 import { s } from "./dom.js";
+import { regentTileArt } from "./regent_art.js";
 
 const T = 100;
 const DX = [0, 1, 0, -1];
@@ -25,7 +26,7 @@ function rng(seed) {
 // ------------------------------------------------------------------ tile art
 function floorShapes(kind, mask) {
   const shapes = [];
-  if (kind === "room" || kind === "start") shapes.push({ x: 15, y: 15, w: 70, h: 70, r: 12 });
+  if (kind === "room" || kind === "start" || kind === "cursed") shapes.push({ x: 15, y: 15, w: 70, h: 70, r: 12 });
   else if (kind === "corridor") shapes.push({ x: 33, y: 33, w: 34, h: 34, r: 4 });
   else shapes.push({ x: 17, y: 17, w: 66, h: 66, r: 33 });
   for (let d = 0; d < 4; d++) {
@@ -40,7 +41,7 @@ function floorShapes(kind, mask) {
 
 const rect = (sh, attrs) => s("rect", { x: sh.x, y: sh.y, width: sh.w, height: sh.h, rx: sh.r || 0, ...attrs });
 
-const FLOOR = { corridor: "#8f877a", room: "#a59c8a", fountain: "#a2a192", portal: "#9d95a6", start: "#cdbd96" };
+const FLOOR = { corridor: "#8f877a", room: "#a59c8a", fountain: "#a2a192", portal: "#9d95a6", start: "#cdbd96", arena: "#9a8f80", cursed: "#7d7488" };
 
 const INK = "#24160d";
 const r1 = (n) => Math.round(n * 10) / 10;
@@ -155,7 +156,7 @@ function tileArt(kind, mask, variant, clipId) {
   out.push(s("g", {}, shapes.map((sh) => rect(sh, { fill: "none", stroke: "#1b110a", "stroke-width": 4 }))));
   out.push(s("clipPath", { id: clipId }, shapes.map((sh) => rect(sh, {}))));
   const floor = [s("rect", { x: 0, y: 0, width: T, height: T, fill: FLOOR[kind] })];
-  const rowH = kind === "room" || kind === "start" ? 13 : 11;
+  const rowH = kind === "room" || kind === "start" || kind === "cursed" ? 13 : 11;
   for (let row = 0, y = 0; y < 100; row++, y += rowH) {
     let x = (row % 2) * -9 - r() * 6;
     while (x < 100) {
@@ -192,6 +193,7 @@ function tileArt(kind, mask, variant, clipId) {
   }
   if (HEALING.has(kind)) out.push(...fountainArt());
   if (kind === "portal") out.push(...riftArt());
+  if (kind === "arena" || kind === "cursed") out.push(...regentTileArt(kind));
   if (kind === "corridor" && variant === 2) {
     out.push(s("path", { d: "M40 58 l10 4 M42 63 l7 -6", stroke: "#e9dfc6", "stroke-width": 2.5, "stroke-linecap": "round" }));
     out.push(s("circle", { cx: 57, cy: 44, r: 3.5, fill: "#e9dfc6", stroke: "#2b2016", "stroke-width": 1 }));
@@ -203,7 +205,7 @@ function tileArt(kind, mask, variant, clipId) {
 // Where items left on a tile lie: room corners, otherwise the open corridor arms (corners there are wall).
 const ARM_SPOTS = [[0, -31], [31, 0], [0, 31], [-31, 0]];
 function itemSpots(kind, exits) {
-  if (kind === "room" || kind === "start") return [[-25, 25], [25, 25], [-25, -25], [25, -25], [0, 29]];
+  if (kind === "room" || kind === "start" || kind === "cursed") return [[-25, 25], [25, 25], [-25, -25], [25, -25], [0, 29]];
   return [...ARM_SPOTS.filter((_, d) => hasExit(exits, d)), [-22, 22], [22, 22], [-22, -22], [22, -22]];
 }
 
@@ -222,7 +224,7 @@ export class Board {
       ghost: s("g", { class: "l-ghost" }),
     };
     this.svg = s("svg", { class: "board-svg", xmlns: "http://www.w3.org/2000/svg" }, this.defs, Object.values(this.layers));
-    for (const hero of ["warrior", "thief", "wizard", "warlock", "swordsman", "oracle"]) {
+    for (const hero of ["warrior", "thief", "wizard", "warlock", "swordsman", "oracle", "barbarian", "battlemage", "acrobat", "ranger", "lord"]) {
       this.defs.append(s("clipPath", { id: `clip-${hero}` }, s("circle", { cx: 0, cy: 0, r: 15 })));
     }
     this.el = this.svg;
@@ -446,6 +448,29 @@ export class Board {
           s(
             "g",
             { class: `spot teleport ${hinted ? "hint" : ""}`, transform: `translate(${a.to[0] * T} ${a.to[1] * T})`, "data-act": JSON.stringify(a) },
+            s("rect", { x: 3, y: 3, width: T - 6, height: T - 6, rx: 8, class: "spot-ring" }),
+          ),
+        );
+      } else if (a.type === "eavesdrop") {
+        const x = pos.x + DX[a.dir];
+        const y = pos.y + DY[a.dir];
+        marks.push(
+          s(
+            "g",
+            { class: "spot explore ear", transform: `translate(${x * T} ${y * T})`, "data-act": JSON.stringify(a) },
+            s("use", { href: "#tile-back", x: 6, y: 6, width: T - 12, height: T - 12, opacity: 0.8 }),
+            s("rect", { x: 4, y: 4, width: T - 8, height: T - 8, rx: 6, class: "spot-ring" }),
+            s("text", { x: 50, y: 62, "text-anchor": "middle", class: "spot-q" }, "👂"),
+          ),
+        );
+      } else if (a.type === "sprint" || a.type === "blitz" || a.type === "retreat") {
+        const [x, y] = a.type === "sprint" ? a.to : a.type === "blitz" ? a.at : [game.combat.x + DX[a.dir], game.combat.y + DY[a.dir]];
+        const t = byPos.get(`${x},${y}`);
+        const danger = a.type === "blitz" || (a.type === "sprint" && t && t.token && t.token !== "chest");
+        marks.push(
+          s(
+            "g",
+            { class: `spot ${a.type === "sprint" ? "teleport" : "move"} ${danger ? "danger" : ""}`, transform: `translate(${x * T} ${y * T})`, "data-act": JSON.stringify(a) },
             s("rect", { x: 3, y: 3, width: T - 6, height: T - 6, rx: 8, class: "spot-ring" }),
           ),
         );

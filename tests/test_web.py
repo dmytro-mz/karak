@@ -160,6 +160,7 @@ def test_hint_suggests_a_legal_action() -> None:
 
 def test_pile_and_bag_counts_follow_the_game() -> None:
     room, inboxes = _room(bots=())
+    room.handle(inboxes[0].member_id, {"type": "settings", "changes": {"peek": True}})
     room.handle(inboxes[0].member_id, {"type": "start"})
     g = room.state_for(inboxes[1].member_id)["game"]
     kinds = {k["kind"]: (k["left"], k["total"]) for k in g["pile"]}
@@ -195,7 +196,7 @@ def test_http_and_websocket_smoke() -> None:
         config = client.get("/api/config").json()
         models = {p.stem for p in MODELS.glob("*.npz")}
         assert {b["key"] for b in config["bots"]} == {"squire", "adventurer", "champion", *models}
-        assert len(config["heroes"]) == 6
+        assert len(config["heroes"]) == 11  # 6 + 4 Regent + the Lord of Karak
         code = client.post("/api/rooms").json()["room"]
         assert client.get(f"/api/rooms/{code}").json()["status"] == "lobby"
         with client.websocket_connect(f"/ws/{code}") as ws:
@@ -208,3 +209,55 @@ def test_http_and_websocket_smoke() -> None:
                 pass
             assert len(msg["seats"]) == 2
         assert client.get("/api/rooms/NOPE").status_code == 404
+
+
+# ------------------------------------------------------------------ Karak: Regent at the table
+def test_regent_settings_and_heroes() -> None:
+    room, inboxes = _room(bots=())
+    host, guest = inboxes[0].member_id, inboxes[1].member_id
+    with pytest.raises(RoomError):
+        room.handle(host, {"type": "pick_hero", "hero": "ranger"})  # the expansion is off
+    room.handle(host, {"type": "settings", "changes": {"lord": True}})
+    assert not room.settings.lord  # the Lord of Karak needs the expansion
+    room.handle(host, {"type": "settings", "changes": {"expansion": True, "lord": True}})
+    room.handle(host, {"type": "pick_hero", "hero": "ranger"})
+    with pytest.raises(RoomError):
+        room.handle(guest, {"type": "pick_hero", "hero": "lord"})  # the Lord of Karak is never picked
+    room.handle(host, {"type": "settings", "changes": {"expansion": False}})
+    assert not room.settings.lord and room.seats[0].hero is None  # turning it off drops Regent heroes and the Lord
+    with pytest.raises(RoomError):
+        room.handle(guest, {"type": "settings", "changes": {"expansion": True}})  # host only
+
+
+def test_the_trained_ai_cannot_join_a_regent_table() -> None:
+    if not any(MODELS.glob("*.npz")):
+        pytest.skip("no trained model shipped")
+    room, inboxes = _room(bots=())
+    host = inboxes[0].member_id
+    room.handle(host, {"type": "settings", "changes": {"expansion": True}})
+    with pytest.raises(RoomError):
+        room.handle(host, {"type": "add_bot", "bot": "ai"})
+
+
+def test_regent_game_through_the_room_protocol() -> None:
+    room, inboxes = _room(bots=("champion",), seed=11)
+    host = inboxes[0].member_id
+    room.handle(host, {"type": "settings", "changes": {"expansion": True, "lord": True, "peek": True}})
+    room.handle(host, {"type": "start"})
+    game = room.game
+    assert game is not None and game.rules.expansion and game.rules.lord
+    g = room.state_for(host)["game"]
+    assert g["expansion"] and g["lord_mode"] and g["lord"] is None
+    assert sum(k["total"] for k in g["pile"]) == 97 and {k["kind"] for k in g["pile"]} >= {"arena", "cursed"}
+    assert {b["key"] for b in g["bag"]} >= {"bat", "icemage"}
+    rng = random.Random(4)
+    for _ in range(4000):
+        if room.status != "playing":
+            break
+        state = room.state_for(host)["game"]
+        assert state["actor"] == game.actor
+        if not any(_human_move(room, inbox, rng) for inbox in inboxes):
+            plan = room.plan()
+            assert plan is not None
+            plan[1]()
+    assert room.status == "game_over"

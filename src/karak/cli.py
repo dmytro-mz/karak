@@ -18,13 +18,13 @@ def _play(args: tuple[list[str], int]) -> tuple[list[str], list[int], int, bool]
     import random
 
     from karak.bots import make_bot
-    from karak.game.model import Hero
+    from karak.game.model import BASE_HEROES
     from karak.runner import play_game
 
     keys, seed = args
     shift = seed % len(keys)
     seated = keys[shift:] + keys[:shift]
-    heroes = random.Random(seed).sample(list(Hero), len(keys))
+    heroes = random.Random(seed).sample(list(BASE_HEROES), len(keys))
     game = play_game([make_bot(k, seed * 31 + i) for i, k in enumerate(seated)], heroes, seed=seed)
     assert game.result is not None
     return seated, game.result.winners, game.turn, game.dragon_slain_by is not None

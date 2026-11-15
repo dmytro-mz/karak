@@ -48,6 +48,8 @@ class Kind(StrEnum):
     ROOM = "room"  # draws a token from the bag when first discovered
     FOUNTAIN = "fountain"  # healing fountain
     PORTAL = "portal"  # teleportation gate
+    ARENA = "arena"  # Regent: the first hero to enter challenges another hero to a duel, then it is a corridor
+    CURSED = "cursed"  # Regent: every hero who enters rolls a die and is cursed on 1-3
 
 
 HEALING = (Kind.START, Kind.FOUNTAIN)
@@ -73,8 +75,21 @@ TILE_PILE: tuple[tuple[Kind, int, int], ...] = (
 )
 
 
-def tile_pile() -> list[tuple[Kind, int]]:
-    return [(kind, mask) for kind, mask, n in TILE_PILE for _ in range(n)]
+# Karak: Regent adds 18 tiles: 6 arenas, 4 cursed chambers and 8 more chambers.
+REGENT_TILES: tuple[tuple[Kind, int, int], ...] = (
+    (Kind.ARENA, STRAIGHT, 6),
+    (Kind.CURSED, CROSS, 4),
+    (Kind.ROOM, TEE, 4),
+    (Kind.ROOM, CORNER, 2),
+    (Kind.ROOM, CROSS, 2),
+)
+LORD_CHAMBERS = (Kind.ARENA, Kind.CURSED)
+LORD_CHAMBERS_NEEDED = 5  # discovered chambers that wake the Lord of Karak
+
+
+def tile_pile(expansion: bool = False) -> list[tuple[Kind, int]]:
+    tiles = TILE_PILE + (REGENT_TILES if expansion else ())
+    return [(kind, mask) for kind, mask, n in tiles for _ in range(n)]
 
 
 class Slot(StrEnum):
@@ -95,6 +110,9 @@ class ItemDef:
     points: int = 0  # treasure, in half points (the dragon's ruby is worth 1.5)
 
 
+# Regent equipment; spells that harm others or strengthen a fight.
+REGENT_ITEMS = ("thorn", "frost")
+
 ITEMS: dict[str, ItemDef] = {
     i.key: i
     for i in (
@@ -103,6 +121,8 @@ ITEMS: dict[str, ItemDef] = {
         ItemDef("axe", "Axe", Slot.WEAPON, power=3),
         ItemDef("bolt", "Magic bolt", Slot.SPELL),
         ItemDef("healing", "Portal of healing", Slot.SPELL),
+        ItemDef("thorn", "Thorn of darkness", Slot.SPELL),
+        ItemDef("frost", "Frost fist", Slot.SPELL),
         ItemDef("key", "Key", Slot.KEY),
         ItemDef("treasure", "Treasure", None, points=2),
         ItemDef("ruby", "Dragon's ruby", None, points=3),
@@ -119,6 +139,8 @@ class MonsterDef:
     count: int
 
 
+REGENT_MONSTERS = ("bat", "icemage")
+
 MONSTERS: dict[str, MonsterDef] = {
     m.key: m
     for m in (
@@ -130,14 +152,18 @@ MONSTERS: dict[str, MonsterDef] = {
         MonsterDef("king", "Skeleton king", 10, "axe", 3),
         MonsterDef("fallen", "The Fallen", 12, "treasure", 2),
         MonsterDef("dragon", "Dragon", 15, "ruby", 1),
+        # Regent (strengths are our own choice; the rules text doesn't print them)
+        MonsterDef("bat", "Giant bat", 6, "thorn", 6),
+        MonsterDef("icemage", "Ice mage", 11, "frost", 2),
     )
 }
 CHEST = "chest"
 CHESTS = 10
 
 
-def bag() -> list[str]:
-    return [m.key for m in MONSTERS.values() for _ in range(m.count)] + [CHEST] * CHESTS
+def bag(expansion: bool = False) -> list[str]:
+    monsters = [m for m in MONSTERS.values() if expansion or m.key not in REGENT_MONSTERS]
+    return [m.key for m in monsters for _ in range(m.count)] + [CHEST] * CHESTS
 
 
 class Hero(StrEnum):
@@ -147,6 +173,15 @@ class Hero(StrEnum):
     WARLOCK = "warlock"
     SWORDSMAN = "swordsman"
     ORACLE = "oracle"
+    BARBARIAN = "barbarian"  # Regent
+    BATTLEMAGE = "battlemage"
+    ACROBAT = "acrobat"
+    RANGER = "ranger"
+    LORD = "lord"  # the possessed hero of the Lord of Karak game; never picked at the lobby
+
+
+BASE_HEROES = (Hero.WARRIOR, Hero.THIEF, Hero.WIZARD, Hero.WARLOCK, Hero.SWORDSMAN, Hero.ORACLE)
+REGENT_HEROES = (Hero.BARBARIAN, Hero.BATTLEMAGE, Hero.ACROBAT, Hero.RANGER)
 
 
 @dataclass(frozen=True)
@@ -213,6 +248,65 @@ HEROES: dict[Hero, HeroDef] = {
                 ("Fate's choice", "Draws two tokens from the bag, keeps one and returns the other."),
             ),
         ),
+        HeroDef(
+            Hero.BARBARIAN,
+            "Barbarian",
+            (
+                (
+                    "Berserk",
+                    "+1 to the attack total with exactly 3 or 4 HP, +2 with 1 or 2 HP. When healing at a fountain "
+                    "at the end of the turn, may choose how many HP to heal.",
+                ),
+                (
+                    "Perseverance",
+                    "After beating a monster, if the loot is left on the floor (or is a treasure), the turn goes on.",
+                ),
+            ),
+        ),
+        HeroDef(
+            Hero.BATTLEMAGE,
+            "Battle mage",
+            (
+                ("Sword master", "A sword has power 3 in this hero's hands."),
+                (
+                    "Blitz attack",
+                    "At the start of the turn, may teleport to any tile with a monster and fight it, using all "
+                    "4 moves. "
+                    "After a tie or a loss, chooses which discovered neighbouring tile to retreat to.",
+                ),
+            ),
+        ),
+        HeroDef(
+            Hero.ACROBAT,
+            "Acrobat",
+            (
+                (
+                    "Throwing daggers",
+                    "Daggers may also be carried in spell slots. Each dagger carried adds +1 and is never used up.",
+                ),
+                (
+                    "Sprint",
+                    "At the start of the turn, may run up to 8 tiles over discovered tiles instead of the 4 moves "
+                    "(no exploring; arenas and cursed chambers can only be the last tile).",
+                ),
+            ),
+        ),
+        HeroDef(
+            Hero.RANGER,
+            "Ranger",
+            (
+                ("Bear attack", "Every die that shows a 1 counts as a 6."),
+                (
+                    "Eavesdropping",
+                    "For 1 move, explores a neighbouring tile (and its token) without stepping onto it.",
+                ),
+            ),
+        ),
+        HeroDef(
+            Hero.LORD,
+            "Lord of Karak",
+            (("All skills", "Has the skills of every other hero at the table (and keeps its own with 2 players)."),),
+        ),
     )
 }
 
@@ -225,6 +319,7 @@ class Tile:
     exits: int
     token: str | None = None  # monster key or CHEST
     items: list[str] = field(default_factory=list)  # equipment lying on the floor
+    spent: bool = False  # Regent: an arena whose duel has been fought is an ordinary corridor
 
     @property
     def monster(self) -> str | None:
@@ -239,4 +334,5 @@ class Tile:
             "exits": self.exits,
             "token": self.token,
             "items": list(self.items),
+            "spent": self.spent,
         }

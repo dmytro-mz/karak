@@ -8,7 +8,7 @@ import random
 from concurrent.futures import ProcessPoolExecutor
 
 from karak.bots import PlannerBot, PlannerConfig
-from karak.game.model import Hero
+from karak.game.model import BASE_HEROES, Hero
 from karak.runner import play_game
 
 VARIANTS = {
@@ -23,7 +23,7 @@ VARIANTS = {
 def one(args: tuple[str, int, int]) -> tuple[str, float]:
     name, seed, n = args
     seat = seed % n
-    others = random.Random(seed).sample([h for h in Hero if h != Hero.WARLOCK], n - 1)
+    others = random.Random(seed).sample([h for h in BASE_HEROES if h != Hero.WARLOCK], n - 1)
     heroes = [*others[:seat], Hero.WARLOCK, *others[seat:]]
     bots = [PlannerBot(seed * 7 + i, VARIANTS[name] if i == seat else PlannerConfig(swap=False)) for i in range(n)]
     g = play_game(bots, heroes, seed=seed)

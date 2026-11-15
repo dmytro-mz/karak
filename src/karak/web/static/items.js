@@ -1,20 +1,20 @@
 // Weapon and spell icons (100×100 markup strings for <symbol>s): forged steel weapons laid diagonally,
 // and spells as rolled scrolls with a wax seal.
 
-const r1 = (n) => Math.round(n * 10) / 10;
+export const r1 = (n) => Math.round(n * 10) / 10;
 const attrs = (a) => Object.entries(a).map(([k, v]) => `${k}="${v}"`).join(" ");
-const E = (tag, a = {}, ...kids) => `<${tag} ${attrs(a)}>${kids.flat(Infinity).join("")}</${tag}>`;
+export const E = (tag, a = {}, ...kids) => `<${tag} ${attrs(a)}>${kids.flat(Infinity).join("")}</${tag}>`;
 const INK = "#24160d";
 const DARK = "#1a100a";
 const OW = 1.8;
-const L = (w = 3, c = INK) => ({ stroke: c, "stroke-width": w, "stroke-linejoin": "round", "stroke-linecap": "round" });
-const rot = (d, ...kids) => E("g", { transform: `rotate(${d} 50 50)` }, kids);
+export const L = (w = 3, c = INK) => ({ stroke: c, "stroke-width": w, "stroke-linejoin": "round", "stroke-linecap": "round" });
+export const rot = (d, ...kids) => E("g", { transform: `rotate(${d} 50 50)` }, kids);
 const mirror = (...kids) => E("g", { transform: "translate(100 0) scale(-1 1)" }, kids);
-const scaled = (k, ...kids) => E("g", { transform: `translate(50 50) scale(${k}) translate(-50 -50)` }, kids);
-const heartD = (x, y, s) =>
+export const scaled = (k, ...kids) => E("g", { transform: `translate(50 50) scale(${k}) translate(-50 -50)` }, kids);
+export const heartD = (x, y, s) =>
   `M${x} ${r1(y + 3 * s)} Q${r1(x - 5 * s)} ${r1(y - 0.4 * s)} ${r1(x - 2.6 * s)} ${r1(y - 2.6 * s)} Q${r1(x - s)} ${r1(y - 3.6 * s)} ${x} ${r1(y - 1.6 * s)} ` +
   `Q${r1(x + s)} ${r1(y - 3.6 * s)} ${r1(x + 2.6 * s)} ${r1(y - 2.6 * s)} Q${r1(x + 5 * s)} ${r1(y - 0.4 * s)} ${x} ${r1(y + 3 * s)}Z`;
-const star4 = (x, y, r, fill) => E("path", { d: `M${x} ${y - r} Q${x} ${y} ${x + r} ${y} Q${x} ${y} ${x} ${y + r} Q${x} ${y} ${x - r} ${y} Q${x} ${y} ${x} ${y - r}Z`, fill, ...L(1.4) });
+export const star4 = (x, y, r, fill) => E("path", { d: `M${x} ${y - r} Q${x} ${y} ${x + r} ${y} Q${x} ${y} ${x} ${y + r} Q${x} ${y} ${x - r} ${y} Q${x} ${y} ${x} ${y - r}Z`, fill, ...L(1.4) });
 
 // ------------------------------------------------------------------ weapon parts (upright, tip up; rotated afterwards)
 function blade(y0, y1, w, tip) {
@@ -83,8 +83,8 @@ const axeUp = () => [
 ];
 
 // ------------------------------------------------------------------ spells
-const SHEET = "M27 20 Q24 50 27 80 H73 Q76 50 73 20Z";
-function scroll(content, seal) {
+export const SHEET = "M27 20 Q24 50 27 80 H73 Q76 50 73 20Z";
+export function scroll(content, seal) {
   return [
     E("path", { d: SHEET, fill: "#f6e7c0", ...L(3) }),
     E("path", { d: "M31 26 V74", stroke: "#d9c08a", "stroke-width": 2, opacity: 0.7 }),
@@ -99,7 +99,7 @@ function scroll(content, seal) {
   ];
 }
 
-const BOLT = "M62 4 L30 52 H48 L36 96 L72 42 H54 L72 4Z";
+export const BOLT = "M62 4 L30 52 H48 L36 96 L72 42 H54 L72 4Z";
 const spiral = (a0, from, to, turn, n = 28) =>
   "M" +
   Array.from({ length: n + 1 }, (_, i) => {

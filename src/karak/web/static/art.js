@@ -3,6 +3,7 @@
 
 import { h, s } from "./dom.js";
 import { ITEM_DEFS, ITEM_KEYS, itemArt } from "./items.js";
+import { installRegentArt, MONSTER_ART_KEYS, ITEM_ART_KEYS } from "./regent_art.js";
 import { HERO_KEYS, MONSTER_KEYS, PORTRAIT_DEFS, heroArt, monsterArt } from "./portraits.js";
 
 export const HERO_FILL = {
@@ -13,6 +14,11 @@ export const HERO_FILL = {
   gold: ["#f0be3c", "#8a5c0c"],
   teal: ["#3fb9b0", "#14605b"],
   stone: ["#9b8f80", "#4f463b"],
+  orange: ["#f0883a", "#8f3f0c"],
+  indigo: ["#6f7be8", "#2a2f86"],
+  pink: ["#ec7fb0", "#8a2a5a"],
+  olive: ["#a3b04a", "#4a5416"],
+  ember: ["#b86cf0", "#3a1255"],
 };
 
 const INK = "#24160d";
@@ -181,6 +187,7 @@ export function installArt() {
     Object.entries(MISC).map(([k, f]) => s("symbol", { id: `misc-${k}`, viewBox: "0 0 100 100" }, f())),
     s("symbol", { id: "tile-back", viewBox: "0 0 100 100" }, tileBack()),
   );
+  installRegentArt(defs);
   document.body.append(s("svg", { class: "defs-holder", width: 0, height: 0, "aria-hidden": "true" }, defs));
 }
 
@@ -232,7 +239,14 @@ export function richText(text) {
   while ((m = re.exec(text))) {
     out.push(text.slice(last, m.index));
     const k = m[1];
-    const id = MONSTER_KEYS.includes(k) ? `mon-${k}` : ITEMS[k] || ITEM_KEYS.includes(k) ? `item-${k}` : k === "chest" ? "misc-chest" : null;
+    const id =
+      MONSTER_KEYS.includes(k) || MONSTER_ART_KEYS.includes(k)
+        ? `mon-${k}`
+        : ITEMS[k] || ITEM_KEYS.includes(k) || ITEM_ART_KEYS.includes(k)
+          ? `item-${k}`
+          : k === "chest"
+            ? "misc-chest"
+            : null;
     out.push(id ? art(id, 18, "inline") : m[0]);
     last = re.lastIndex;
   }

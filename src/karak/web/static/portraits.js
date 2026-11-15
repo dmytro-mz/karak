@@ -1,19 +1,19 @@
 // Hero and monster portraits as SVG markup in a 100×100 box: inked storybook busts for the heroes,
 // fierce close-ups on a blood-red disc for the monsters. art.js installs them as <symbol>s.
 
-const INK = "#24160d";
-const r2 = (n) => Math.round(n * 100) / 100;
+export const INK = "#24160d";
+export const r2 = (n) => Math.round(n * 100) / 100;
 const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
-const mix = (a, b, t) => "#" + hex(a).map((v, i) => Math.round(v + (hex(b)[i] - v) * t).toString(16).padStart(2, "0")).join("");
-const mirrorAll = (d) => d.replace(/(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/g, (_, x, y) => `${r2(100 - +x)} ${y}`);
+export const mix = (a, b, t) => "#" + hex(a).map((v, i) => Math.round(v + (hex(b)[i] - v) * t).toString(16).padStart(2, "0")).join("");
+export const mirrorAll = (d) => d.replace(/(-?\d*\.?\d+)[ ,]+(-?\d*\.?\d+)/g, (_, x, y) => `${r2(100 - +x)} ${y}`);
 const both = (d) => `${d} ${mirrorAll(d)}`;
-const P = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [v]]));
+export const P = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, [v]]));
 
 // ------------------------------------------------------------------ drawing kits
 const softGlow = (op) => (cx, cy, r, c) =>
   `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${c}" opacity="${r2(op * 0.6)}"/><circle cx="${cx}" cy="${cy}" r="${r2(r * 0.62)}" fill="${c}" opacity="${op}"/>`;
 
-function heroKit() {
+export function heroKit() {
   const k = { lw: 2.4 };
   k.fill = (e) => e[0];
   k.line = (w = 1, c = INK) => `stroke="${c}" stroke-width="${r2(k.lw * w)}" stroke-linejoin="round" stroke-linecap="round"`;
@@ -38,7 +38,7 @@ function heroKit() {
 }
 
 // Monster kit: darker fills, stronger shade, no highlights, glowing eyes.
-function monsterKit() {
+export function monsterKit() {
   const k = { lw: 2.4 };
   k.fill = (e) => mix(e[0], "#14080a", 0.3);
   k.line = (w = 1, c = INK) => `stroke="${c}" stroke-width="${r2(k.lw * w)}" stroke-linejoin="round" stroke-linecap="round"`;
@@ -64,7 +64,7 @@ function monsterKit() {
   return k;
 }
 
-function tools(k, pal) {
+export function tools(k, pal) {
   const F = (key) => (key ? k.fill(pal[key]) : "none");
   const p = (d, key, w = 1) => `<path d="${d}" fill="${F(key)}" ${w ? k.line(w) : ""}/>`;
   const poly = (pts, key, w) => p("M" + pts.map(([x, y]) => `${r2(x)} ${r2(y)}`).join(" L") + "Z", key, w);
@@ -97,7 +97,7 @@ function tools(k, pal) {
   };
 }
 
-const limb = (k, d, w, c) =>
+export const limb = (k, d, w, c) =>
   `<path d="${d}" fill="none" stroke="${INK}" stroke-width="${r2(w + k.lw)}" stroke-linecap="round" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
 const ringM = (k, t, cx, cy, r, key, w = 2.2) =>
   `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${INK}" stroke-width="${r2(w + k.lw * 0.8)}"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${t.F(key)}" stroke-width="${w}"/>`;
@@ -106,10 +106,6 @@ const ring = (t, cx, cy, r, key, w = 2.2) =>
 
 // ------------------------------------------------------------------ heroes
 const HERO_PAL = {
-  warrior: {
-    skin: "#eab489", beard: "#c0662e", beardDk: "#8f4220", steel: "#b3bcc4", steelDk: "#7c858f", horn: "#f3ead2", fur: "#6b4426", furLt: "#9a6a3e",
-    wood: "#8a5a2b", blade: "#d6dde3", gold: "#e2b23b", scar: "#b53a2a", rivet: "#4f463b",
-  },
   thief: {
     skin: "#f0c59a", hood: "#3f7a34", hoodDk: "#21401c", hair: "#94391f", cloak: "#2c5226", leather: "#6b3f1f", gold: "#d9b04a", blade: "#d6dde3", scarfR: "#8a2f24",
   },
@@ -126,10 +122,10 @@ const HERO_PAL = {
     skin: "#a8693f", robe: "#34407a", gold: "#d9b04a", gem: "#3fe0d0", orb: "#a8fff4", lipsDk: "#6e2f2a", wrap: "#1f7d76", white: "#fffaf0",
   },
 };
-const SH = "M6 100 Q8 80 28 74 Q40 70 50 71 Q60 70 72 74 Q92 80 94 100Z";
-const NECK = "M43 62 V77 H57 V62Z";
+export const SH = "M6 100 Q8 80 28 74 Q40 70 50 71 Q60 70 72 74 Q92 80 94 100Z";
+export const NECK = "M43 62 V77 H57 V62Z";
 
-function face(k, t, { y = 48, ears = true, nose = true, blush = true } = {}) {
+export function face(k, t, { y = 48, ears = true, nose = true, blush = true } = {}) {
   let o = "";
   if (ears) o += t.e(32.5, y + 2, 3.5, 5.5, "skin", 0.9) + t.e(67.5, y + 2, 3.5, 5.5, "skin", 0.9);
   o += t.e(50, y, 17.5, 20, "skin");
@@ -140,40 +136,6 @@ function face(k, t, { y = 48, ears = true, nose = true, blush = true } = {}) {
 }
 
 const HERO = {
-  warrior: (k, t) => [
-    t.bar(22, 99, 31, 22, 5, "wood"),
-    t.p("M30 28 Q15 17 10 33 Q16 47 31 40Z", "blade"),
-    k.hi("M13.5 33 Q15.5 24 24 23.5 Q18 28 17 36Z"),
-    t.p("M30 27 Q37 25 38.5 31 Q38 37 31 39Z", "steelDk", 0.7),
-    t.p(NECK, "skin"),
-    t.p(SH, "fur"),
-    t.p("M16 84 Q20 72 30 76 Q34 68 42 72 Q50 66 58 72 Q66 68 70 76 Q80 72 84 84 Q50 77 16 84Z", "furLt", 0.8),
-    t.p("M6 94 Q8 76 28 77 Q33 88 26 99Z", "steel"),
-    t.p("M94 94 Q92 76 72 77 Q67 88 74 99Z", "steel"),
-    k.shade("M80 78 Q92 80 94 94 L76 99 Q80 88 80 78Z"),
-    t.c(14, 85, 1.3, "rivet", 0), t.c(86, 85, 1.3, "rivet", 0),
-    t.p("M31 50 Q30 80 42 86 L44 97 L50 92 L56 97 L58 86 Q70 80 69 50Z", "beard"),
-    face(k, t, { nose: false }),
-    t.p("M32.5 53 Q33 72 44 78 Q50 81 56 78 Q67 72 67.5 53 Q62 61 56 58 Q50 63 44 58 Q38 61 32.5 53Z", "beard"),
-    k.shade("M60 60 Q67 56 67.5 53 Q67 72 56 78 Q62 70 60 60Z"),
-    t.ln("M40 66 Q42 72 46 76 M60 66 Q58 72 54 76", 0.4),
-    t.ln("M46.5 64.5 Q50 66 53.5 64.5", 0.6),
-    t.p("M50 57.5 Q43 54.5 37 60.5 Q43 58.5 46 62.5 Q50 60.5 50 57.5 Q50 60.5 54 62.5 Q57 58.5 63 60.5 Q57 54.5 50 57.5Z", "beardDk", 0.6),
-    t.p("M42.2 88 L46.8 88 L47.2 91.5 L42.8 91.5Z M53.2 88 L57.8 88 L57.2 91.5 L52.8 91.5Z", "gold", 0.5),
-    k.eyes(49, "#3b5f86"),
-    t.ln("M37 44 L46 46", 1.3), t.ln("M63 44 L54 46", 1.3),
-    t.cs("M60 52 L64.5 59", 1.8, "scar"),
-    t.p("M32 33 Q18 32 17 16 Q24 25 33 26Z", "horn"),
-    t.p("M68 33 Q82 32 83 16 Q76 25 67 26Z", "horn"),
-    t.ln("M22.5 27.5 L25.5 24.6 M77.5 27.5 L74.5 24.6", 0.5),
-    t.p("M31 40 Q31 23 50 21 Q69 23 69 40Z", "steel"),
-    k.shade("M56 22 Q69 25 69 40 L60 40 Q60 30 56 22Z"),
-    k.hi("M35 37 Q35 27 44 24 Q39 29 38.5 37Z"),
-    t.p("M47.5 21.5 H52.5 V38 H47.5Z", "steelDk", 0.6),
-    t.p("M29.5 37.5 H70.5 V42.5 H29.5Z", "steelDk", 0.9),
-    t.c(34, 40, 1, "rivet", 0), t.c(41, 40, 1, "rivet", 0), t.c(59, 40, 1, "rivet", 0), t.c(66, 40, 1, "rivet", 0),
-    t.p("M47.6 42 H52.4 V55 L50 57.5 L47.6 55Z", "steel", 0.8),
-  ],
   // the huntress: hood, copper braid over the shoulder, red scarf mask, dagger
   thief: (k, t) => [
     t.p(NECK, "skin"), t.p(SH, "cloak"),
@@ -313,7 +275,7 @@ const MPAL = {
   fallen: P({ cloak: "#2c3a40", steel: "#7d8f96", steelDk: "#4c6068", void: "#0f1a1d", horn: "#cbbd9c", tooth: "#e6dcc6" }),
   dragon: P({}),
 };
-const mirrorX = (d) => d.replace(/([ML])\s*([\d.]+)\s+([\d.]+)/g, (_, c, x, y) => `${c}${r2(100 - x)} ${y}`);
+export const mirrorX = (d) => d.replace(/([ML])\s*([\d.]+)\s+([\d.]+)/g, (_, c, x, y) => `${c}${r2(100 - x)} ${y}`);
 const gleam = (d, op = 0.5) => `<path d="${d}" fill="none" stroke="#ffffff" stroke-width="0.9" opacity="${op}" stroke-linecap="round"/>`;
 const drip = (x, y, len = 7) =>
   `<path d="M${x} ${y} Q${x + 1} ${y + len * 0.6} ${x + 0.3} ${y + len}" fill="none" stroke="${BLOOD}" stroke-width="1.7" stroke-linecap="round"/><ellipse cx="${x + 0.3}" cy="${y + len + 1.2}" rx="1.3" ry="1.7" fill="${BLOOD}"/>`;
@@ -329,7 +291,7 @@ const teethRow = (t, x0, y0, x1, y1, n, L, dir = 1, key = "tooth") => {
   return t.p(d.join(" ") + "Z", key, 0.3);
 };
 
-const skull = (k, t, { y = 0, crack = false } = {}) => [
+export const skull = (k, t, { y = 0, crack = false } = {}) => [
   t.p(`M32 ${50 + y} Q31 ${25 + y} 50 ${24 + y} Q69 ${25 + y} 68 ${50 + y} Q68 ${59 + y} 62 ${62 + y} L61 ${68 + y} H39 L38 ${62 + y} Q32 ${59 + y} 32 ${50 + y}Z`, "bone"),
   k.shade(`M56 ${25 + y} Q69 ${28 + y} 68 ${50 + y} Q68 ${59 + y} 62 ${62 + y} Q63 ${50 + y} 62 ${42 + y} Q61 ${31 + y} 56 ${25 + y}Z`),
   t.e(42, 48 + y, 6, 6.6, "socket", 0), t.e(58, 48 + y, 6, 6.6, "socket", 0),
@@ -338,7 +300,7 @@ const skull = (k, t, { y = 0, crack = false } = {}) => [
   t.ln(`M42.5 ${67.4 + y} V${73.6 + y} M46.2 ${68.6 + y} V${75.6 + y} M50 ${69 + y} V${76.2 + y} M53.8 ${68.6 + y} V${75.6 + y} M57.5 ${67.4 + y} V${73.6 + y}`, 0.35),
   crack ? t.ln(`M44 ${26 + y} L46.5 ${32 + y} L43.5 ${36 + y}`, 0.45) : "",
 ];
-const sockets = (k, c, y = 0) => k.eyes([{ x: 42, y: 48.5 + y, r: 4.2, c, type: "socket" }, { x: 58, y: 48.5 + y, r: 4.2, c, type: "socket" }]);
+export const sockets = (k, c, y = 0) => k.eyes([{ x: 42, y: 48.5 + y, r: 4.2, c, type: "socket" }, { x: 58, y: 48.5 + y, r: 4.2, c, type: "socket" }]);
 const skelTorso = (k, t) => [
   t.p("M14 100 Q18 80 34 75 H66 Q82 80 86 100Z", "void"),
   limb(k, "M38 84 Q50 81 62 84 M39 90 Q50 87 61 90 M40 96 Q50 93 60 96", 1.8, t.F("bone")),
